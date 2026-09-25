@@ -58,13 +58,14 @@ def cmd_info(a):
     hdr = read_bits(flat(img), w, h, seq, 0, 44)
     print(f'dimensions: {w}x{h} ({npx} px, ~{npx * 3 // 8} payload bytes max)')
     if hdr[:4] != MAGIC:
-        print('format: legacy v1 ([u32 size][payload], sequential)')
-        size = struct.unpack('<I', read_bits(flat(img), w, h, seq, 0, 4))[0]
-        print(f'v1 claimed size: {size}')
+        print('format: unrecognized (not a stego image)')
         return 0
     ver, flags = struct.unpack('<H', hdr[4:6])[0], struct.unpack('<H', hdr[6:8])[0]
+    if ver != FORMAT_VERSION:
+        print(f'format: unsupported version v{ver} (this tool reads v{FORMAT_VERSION} only)')
+        return 0
     seed, orig, comp = struct.unpack('<III', hdr[8:20])
-    print(f'format: headered v{ver} (current={FORMAT_VERSION})')
+    print(f'format: stego envelope v{ver}')
     print(f'flags: scatter={bool(flags & F_SCATTER)} encrypt={bool(flags & F_ENCRYPT)} '
           f'auth={bool(flags & F_AUTH)} compress={bool(flags & F_COMPRESS)}')
     print(f'seed: {seed}')

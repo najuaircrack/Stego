@@ -27,15 +27,15 @@ struct Options {
 bool Encode(const Image& cover, const uint8_t* payload, size_t payloadLen,
             const Options& opt, Image& out);
 
-// Decode: tries the header (magic + header CRC), then legacy v1 layout
-// (read-only deprecated path). Strict: CRC/HMAC failures return false.
+// Decode: single envelope format (magic + version + header CRC).
+// Strict: CRC/HMAC failures return false. No legacy fallbacks.
 bool Decode(const Image& img, const std::string& password,
             std::vector<uint8_t>& out);
 
 // Capacity in payload bytes for given dims + options overhead estimate.
 size_t Capacity(uint32_t w, uint32_t h);
 
-// Library version string ("2.1.1").
+// Library version string ("3.0.0").
 const char* Version();
 
 }  // namespace stego

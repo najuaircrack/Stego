@@ -18,10 +18,9 @@ header + magic check), migration is:
 
 1. Link `stego::stego`, delete the local decoder.
 2. Convert PNG to RGB (GDI+ glue in `examples/`, or existing product code).
-3. Call `stego::Decode(rgb)`: current images AND legacy v1/v2 images all
-   decode, so already-hosted files keep working during rollout.
-4. Re-embed hosted images in the current format when convenient
-   (procedure: `docs/MIGRATION.md`); keep the legacy read paths until then.
+3. Call `stego::Decode(rgb)` with the channel password: valid envelope
+   images decode, everything else is rejected.
+4. (Re-)embed hosted images with `stego_cli.py hide --password P --auth`.
 
 ## Constraints the library guarantees
 

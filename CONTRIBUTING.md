@@ -15,4 +15,4 @@
    belong here - propose them as separate projects instead.
 5. **Interop is sacred.** C++, Python, and Rust must agree bit-for-bit;
    prove it with vectors, not reasoning.
-6. **Docs with code.** API/FORMAT/MIGRATION updates ride in the same change.
+6. **Docs with code.** API/FORMAT updates ride in the same change.

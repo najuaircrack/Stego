@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """stegolib.py - codec core (mirrors src/*.cpp bit-for-bit).
 
-Layout: [28B header][body][data_crc32][hmac?], header pixels [0,75)
-sequential, body via PlacementRange(75, N-75, seed). See docs/FORMAT.md.
+Single envelope format: [44B header][body][data_crc32][hmac?], header
+pixels [0,118) sequential, body via PlacementRange(118, N-118, seed).
+See docs/FORMAT.md.
 """
 import hashlib
 import hmac as hmac_mod
@@ -11,11 +12,9 @@ import struct
 import zlib
 
 MAGIC = b'STG2'
-VERSION = 0x0002
 FORMAT_VERSION = 0x0003
-HEADER_LEN = 28
-HEADER_V3_LEN = 44
-HEADER_V3_PX = 118
+HEADER_LEN = 44
+HEADER_PX = 118
 SALT_LEN = 16
 PBKDF2_ITER = 100000
 F_COMPRESS = 0x0001
@@ -74,16 +73,6 @@ def placement_range(base, count, seed):
     return p
 
 
-def keystream(pw, n):
-    out = bytearray()
-    ctr = 0
-    pw = pw.encode('utf-8') if isinstance(pw, str) else pw
-    while len(out) < n:
-        out += hashlib.sha256(pw + struct.pack('>I', ctr)).digest()
-        ctr += 1
-    return bytes(out[:n])
-
-
 def keystream_raw(key32, n):
     out = bytearray()
     ctr = 0
@@ -93,13 +82,8 @@ def keystream_raw(key32, n):
     return bytes(out[:n])
 
 
-def auth_key(pw):
-    pw = pw.encode('utf-8') if isinstance(pw, str) else pw
-    return hashlib.sha256(b'stego-auth-v2' + pw).digest()
-
-
 def kdf(pw, salt):
-    # v3: PBKDF2-HMAC-SHA256 -> 64B (enc[0..32) + auth[32..64)).
+    # PBKDF2-HMAC-SHA256 -> 64B (enc[0..32) + auth[32..64)).
     # Password encoding: UTF-8 bytes (FORMAT.md).
     if isinstance(pw, str):
         pw = pw.encode('utf-8')
@@ -140,7 +124,7 @@ def encode_image(pixels, w, h, payload, seed=0, password='',
     hdr += struct.pack('<I', 0)
     hdr += salt
     hdr += struct.pack('<I', crc32(bytes(hdr)))
-    assert len(hdr) == HEADER_V3_LEN
+    assert len(hdr) == HEADER_LEN
     stream = bytes(hdr) + bytes(body)
     tag = None
     if do_auth:
@@ -152,23 +136,23 @@ def encode_image(pixels, w, h, payload, seed=0, password='',
     if do_auth:
         stream += tag
     npx = w * h
-    if npx <= HEADER_V3_PX:
+    if npx <= HEADER_PX:
         raise ValueError('image too small for header')
-    if (len(stream) * 8 - HEADER_V3_LEN * 8) > (npx - HEADER_V3_PX) * 3:
+    if (len(stream) * 8 - HEADER_LEN * 8) > (npx - HEADER_PX) * 3:
         raise ValueError('payload too large: %d bits need %d' %
                          (len(stream) * 8, npx * 3))
     out = list(pixels)
-    for k in range(HEADER_V3_LEN * 8):
+    for k in range(HEADER_LEN * 8):
         bit = (stream[k // 8] >> (k % 8)) & 1
         p = k // 3
         y, x = p // w, p % w
         out[(y * w + x) * 3 + (k % 3)] = (out[(y * w + x) * 3 + (k % 3)] & 0xFE) | bit
-    place = placement_range(HEADER_V3_PX, npx - HEADER_V3_PX, seed)
-    for m in range(HEADER_V3_LEN * 8, len(stream) * 8):
+    place = placement_range(HEADER_PX, npx - HEADER_PX, seed)
+    for m in range(HEADER_LEN * 8, len(stream) * 8):
         bit = (stream[m // 8] >> (m % 8)) & 1
-        p = place[(m - HEADER_V3_LEN * 8) // 3]
+        p = place[(m - HEADER_LEN * 8) // 3]
         y, x = p // w, p % w
-        idx = (y * w + x) * 3 + ((m - HEADER_V3_LEN * 8) % 3)
+        idx = (y * w + x) * 3 + ((m - HEADER_LEN * 8) % 3)
         out[idx] = (out[idx] & 0xFE) | bit
     return out
 
@@ -176,9 +160,9 @@ def encode_image(pixels, w, h, payload, seed=0, password='',
 def capacity(w, h):
     """Payload-byte budget for dims (v3 layout, conservative, no tag)."""
     npx = w * h
-    if npx <= HEADER_V3_PX:
+    if npx <= HEADER_PX:
         return 0
-    body_bits = (npx - HEADER_V3_PX) * 3
+    body_bits = (npx - HEADER_PX) * 3
     if body_bits < 4 * 8:
         return 0
     return (body_bits - 4 * 8) // 8
@@ -194,7 +178,7 @@ def read_bits(pixels, w, h, place, bit_off, nbytes):
     return bytes(out)
 
 
-def _decode_v3(pixels, w, h, hdr, password):
+def _decode(pixels, w, h, hdr, password):
     npx = w * h
     ver, flags = struct.unpack('<H', hdr[4:6])[0], struct.unpack('<H', hdr[6:8])[0]
     seed, orig, comp = struct.unpack('<III', hdr[8:20])
@@ -216,7 +200,7 @@ def _decode_v3(pixels, w, h, hdr, password):
     if enc:
         dk = kdf(password, salt)
         ek, ak = dk[:32], dk[32:]
-    place = placement_range(HEADER_V3_PX, npx - HEADER_V3_PX, seed)
+    place = placement_range(HEADER_PX, npx - HEADER_PX, seed)
     body = read_bits(pixels, w, h, place, 0, comp)
     crc_at = comp * 8
     tag_at = (comp + 4) * 8
@@ -237,64 +221,14 @@ def _decode_v3(pixels, w, h, hdr, password):
     return body
 
 
-def _decode_v2(pixels, w, h, hdr, password):
-    # Read-only legacy path: 28B header, raw-password CTR, domain auth key.
-    npx = w * h
-    ver, flags = struct.unpack('<H', hdr[4:6])[0], struct.unpack('<H', hdr[6:8])[0]
-    seed, orig, comp = struct.unpack('<III', hdr[8:20])
-    hcrc = struct.unpack('<I', hdr[24:28])[0]
-    if ver != VERSION or crc32(hdr[:24]) != hcrc:
-        return None
-    if flags & F_COMPRESS:
-        return None
-    enc = bool(flags & F_ENCRYPT)
-    auth = bool(flags & F_AUTH)
-    if (enc or auth) and not password:
-        return None
-    if auth and not enc:
-        return None
-    if comp == 0:
-        return None
-    place = placement_range(75, npx - 75, seed)
-    body = read_bits(pixels, w, h, place, 0, comp)
-    crc_at = comp * 8
-    tag_at = (comp + 4) * 8
-    stored = hdr + body
-    if auth:
-        tag = read_bits(pixels, w, h, place, tag_at, 32)
-        good = hmac_mod.new(auth_key(password), stored, hashlib.sha256).digest()
-        if tag != good:
-            return None
-    if enc:
-        ks = keystream(password, len(body))
-        body = bytes(b ^ ks[i] for i, b in enumerate(body))
-    dcrc = struct.unpack('<I', read_bits(pixels, w, h, place, crc_at, 4))[0]
-    if orig != comp:
-        return None
-    if crc32(body) != dcrc:
-        return None
-    return body
-
-
 def decode_image(pixels, w, h, password=''):
     npx = w * h
     if w == 0 or h == 0 or len(pixels) < npx * 3:
         return None  # truncated/degenerate buffer: fail clean, never index OOB
     seq = placement(npx, 0)
-    hdr3 = read_bits(pixels, w, h, seq, 0, HEADER_V3_LEN)
-    if hdr3[:4] == MAGIC:
-        ver = struct.unpack('<H', hdr3[4:6])[0]
-        if ver == FORMAT_VERSION:
-            r = _decode_v3(pixels, w, h, hdr3, password)
-            return r  # valid v3 header: accept or reject, never fall through
     hdr = read_bits(pixels, w, h, seq, 0, HEADER_LEN)
-    if hdr[:4] == MAGIC:
-        ver = struct.unpack('<H', hdr[4:6])[0]
-        if ver == VERSION:
-            r = _decode_v2(pixels, w, h, hdr, password)
-            return r
-    # legacy v1 path
-    size = struct.unpack('<I', read_bits(pixels, w, h, seq, 0, 4))[0]
-    if size == 0 or size > (w * h * 3) // 8:
+    if hdr[:4] != MAGIC:
         return None
-    return read_bits(pixels, w, h, seq, 32, size)
+    if struct.unpack('<H', hdr[4:6])[0] != FORMAT_VERSION:
+        return None
+    return _decode(pixels, w, h, hdr, password)  # accept or reject, no fallbacks

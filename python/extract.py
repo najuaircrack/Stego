@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""extract.py - stego CLI: stego PNG -> payload (current + legacy v1 read)."""
+"""extract.py - stego CLI: stego PNG -> payload (single envelope format)."""
 import os
 import sys
 

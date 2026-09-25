@@ -10,7 +10,7 @@
 namespace stego {
 namespace sha {
 std::vector<uint8_t> Hash(const uint8_t* data, size_t len);
-void Keystream(const std::string& pw, uint8_t* out, size_t len);
+void KeystreamRaw(const uint8_t* key32, uint8_t* out, size_t len);
 std::vector<uint8_t> Hmac(const uint8_t* key, size_t klen,
                            const uint8_t* msg, size_t mlen);
 uint32_t Crc32(const uint8_t* data, size_t len);

@@ -164,7 +164,7 @@ mod tests {
 
     #[test]
     fn malformed_rejected() {
-        let img = cover(32, 32); // 3072 zero bytes: v1 size 0 -> reject
+        let img = cover(32, 32); // 3072 zero bytes: no magic -> reject
         assert!(decode(&img, 32, 32, None).is_err());
     }
 }

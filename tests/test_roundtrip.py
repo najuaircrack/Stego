@@ -12,8 +12,8 @@ import sys
 import zlib
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
-from stegolib import (crc32, decode_image, encode_image, keystream,
-                      placement, placement_range, auth_key)
+from stegolib import (crc32, decode_image, encode_image,
+                      placement, placement_range)
 
 
 def black(w, h):
@@ -63,7 +63,7 @@ def test_tamper_rejected():
     out = encode_image(black(w, h), w, h, msg, seed=7,
                        password='pw', do_auth=True)
     out = list(out)
-    # Flip header-region LSBs (pixels [0,75) always hold the header):
+    # Flip header-region LSBs (pixels [0,118) always hold the header):
     # decode must fail, never silently match.
     out[10] ^= 1
     out[11] ^= 1

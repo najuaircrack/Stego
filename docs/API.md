@@ -1,6 +1,6 @@
 # API - stego library usage
 
-Version: 2.1.1 (`stego_version()` / `VERSION` file).
+Version: 3.0.0 (`stego_version()` / `VERSION` file).
 
 ## C++
 
@@ -23,7 +23,8 @@ size_t max = stego::Capacity(w, h);       // payload-byte budget (conservative)
 
 Rules: `COMPRESS` is rejected (no backend - see `docs/FORMAT.md`);
 `AUTH` requires a non-empty password; `SCATTER` requires nonzero seed.
-`Decode` accepts v3 images plus legacy v2 and v1 read-only paths.
+`Decode` accepts the single envelope format only; anything else is
+rejected.
 Failures are silent booleans - no exceptions, no logging (library never
 touches disk, network, or stdout).
 
@@ -44,7 +45,7 @@ python python/stego_cli.py reveal out.png -o back.bin [--password P]
 python python/stego_cli.py info out.png
 ```
 
-Legacy `python/embed.py` / `python/extract.py` predate the unified CLI and
+Older `python/embed.py` / `python/extract.py` predate the unified CLI and
 remain working; new automation should use `stego_cli.py`.
 
 `stegolib.encode_image / decode_image / capacity` mirror the C++ codec

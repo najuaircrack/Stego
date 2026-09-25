@@ -16,15 +16,14 @@
 #define STEGO_MAGIC_2 'G'
 #define STEGO_MAGIC_3 '2'
 
-// Latest WRITTEN format. Decoders additionally accept 0x0002 and legacy v1.
+// The single envelope format. Decoders accept ONLY this version -
+// anything else (including the retired v1/v2 layouts) is rejected.
 #define STEGO_FORMAT_VERSION 0x0003
 // C ABI stability marker. A format bump MUST NOT imply an ABI bump.
 #define STEGO_ABI_VERSION 0x0001
 
-#define STEGO_HEADER_LEN 28     // v2 header bytes (legacy read path)
-#define STEGO_HEADER_V3_LEN 44  // v3 header bytes (current write path)
-#define STEGO_HEADER_PX 75      // header pixels reserved (v2 layout)
-#define STEGO_HEADER_V3_PX 118  // header pixels reserved (v3 layout)
+#define STEGO_HEADER_LEN 44  // envelope header bytes
+#define STEGO_HEADER_PX 118  // header pixels reserved (always sequential)
 
 #define STEGO_SALT_LEN 16
 #define STEGO_PBKDF2_ITER 100000
@@ -36,7 +35,6 @@
 #define STEGO_F_AUTH     0x0008
 
 #define STEGO_HMAC_LEN 32
-#define STEGO_AUTH_DOMAIN "stego-auth-v2"
 // ---- stego.h ----
 // stego.h - public C++ API. Operates on raw RGB buffers (no file IO;
 // products convert PNG<->RGB with GDI+/PIL - see examples/gdiplus_glue.h).
@@ -62,15 +60,15 @@ struct Options {
 bool Encode(const Image& cover, const uint8_t* payload, size_t payloadLen,
             const Options& opt, Image& out);
 
-// Decode: tries the header (magic + header CRC), then legacy v1 layout
-// (read-only deprecated path). Strict: CRC/HMAC failures return false.
+// Decode: single envelope format (magic + version + header CRC).
+// Strict: CRC/HMAC failures return false. No legacy fallbacks.
 bool Decode(const Image& img, const std::string& password,
             std::vector<uint8_t>& out);
 
 // Capacity in payload bytes for given dims + options overhead estimate.
 size_t Capacity(uint32_t w, uint32_t h);
 
-// Library version string ("2.1.1").
+// Library version string ("3.0.0").
 const char* Version();
 
 }  // namespace stego
@@ -232,26 +230,6 @@ std::vector<uint8_t> Hash(const uint8_t* data, size_t len) {
     return out;
 }
 
-// CTR keystream: SHA256(pw || BE32(counter)) concatenated.
-void Keystream(const std::string& pw, uint8_t* out, size_t len) {
-    uint32_t ctr = 0;
-    size_t pos = 0;
-    while (pos < len) {
-        Ctx c;
-        Init(c);
-        Update(c, (const uint8_t*)pw.data(), pw.size());
-        uint8_t cb[4] = {(uint8_t)(ctr >> 24), (uint8_t)(ctr >> 16),
-                         (uint8_t)(ctr >> 8), (uint8_t)ctr};
-        Update(c, cb, 4);
-        uint8_t d[32];
-        Final(c, d);
-        size_t take = len - pos < 32 ? len - pos : 32;
-        memcpy(out + pos, d, take);
-        pos += take;
-        ctr++;
-    }
-}
-
 // HMAC-SHA256(key, msg).
 std::vector<uint8_t> Hmac(const uint8_t* key, size_t klen,
                            const uint8_t* msg, size_t mlen) {
@@ -297,7 +275,7 @@ uint32_t Crc32(const uint8_t* data, size_t len) {
     return crc ^ 0xFFFFFFFFu;
 }
 
-// CTR keystream over a raw 32-byte key (v3 envelope path).
+// CTR keystream over a raw 32-byte key (envelope path).
 void KeystreamRaw(const uint8_t* key32, uint8_t* out, size_t len) {
     uint32_t ctr = 0;
     size_t pos = 0;
@@ -353,7 +331,7 @@ std::vector<uint8_t> Pbkdf2(const uint8_t* pw, size_t pwLen,
 namespace stego {
 namespace sha {
 std::vector<uint8_t> Hash(const uint8_t* data, size_t len);
-void Keystream(const std::string& pw, uint8_t* out, size_t len);
+void KeystreamRaw(const uint8_t* key32, uint8_t* out, size_t len);
 std::vector<uint8_t> Hmac(const uint8_t* key, size_t klen,
                            const uint8_t* msg, size_t mlen);
 uint32_t Crc32(const uint8_t* data, size_t len);
@@ -449,13 +427,12 @@ int GetBit(const std::vector<uint8_t>& rgb, uint32_t w,
 }  // namespace codec
 }  // namespace stego
 // ---- api.cpp ----
-// api.cpp - Encode (v3) / Decode (v3 + v2-legacy + v1-legacy) + C ABI.
+// api.cpp - Encode / Decode (single salted-envelope format) + C ABI.
 #include <cstdlib>
 
 namespace stego {
 namespace sha {
 std::vector<uint8_t> Hash(const uint8_t* data, size_t len);
-void Keystream(const std::string& pw, uint8_t* out, size_t len);
 void KeystreamRaw(const uint8_t* key32, uint8_t* out, size_t len);
 std::vector<uint8_t> Hmac(const uint8_t* key, size_t klen,
                            const uint8_t* msg, size_t mlen);
@@ -476,13 +453,13 @@ int GetBit(const std::vector<uint8_t>& rgb, uint32_t w,
            const std::vector<uint32_t>& place, size_t k);
 }  // namespace codec
 
-const char* Version() { return "2.1.1"; }
+const char* Version() { return "3.0.0"; }
 
 size_t Capacity(uint32_t w, uint32_t h) {
-    // v3: 118 header pixels reserved; body must fit data_crc32 (+tag).
+    // 118 header pixels reserved; body must fit data_crc32 (+tag).
     size_t nPx = (size_t)w * h;
-    if (nPx <= STEGO_HEADER_V3_PX) return 0;
-    size_t bodyBits = (nPx - STEGO_HEADER_V3_PX) * 3;
+    if (nPx <= STEGO_HEADER_PX) return 0;
+    size_t bodyBits = (nPx - STEGO_HEADER_PX) * 3;
     if (bodyBits < 4 * 8) return 0;
     return (bodyBits - 4 * 8) / 8;
 }
@@ -517,7 +494,7 @@ bool Encode(const Image& cover, const uint8_t* payload, size_t payloadLen,
     if (opt.auth && opt.password.empty()) return false;
     if (opt.scatter && opt.seed == 0) return false;
 
-    // Salt + KDF (v3): PBKDF2 -> 64B (enc[0..32) + auth[32..64)).
+    // Salt + KDF: PBKDF2 -> 64B (enc[0..32) + auth[32..64)).
     uint8_t salt[STEGO_SALT_LEN] = {0};
     std::vector<uint8_t> encKey, authKey;
     if (!opt.password.empty()) {
@@ -538,7 +515,7 @@ bool Encode(const Image& cover, const uint8_t* payload, size_t payloadLen,
         for (size_t i = 0; i < body.size(); i++) body[i] ^= ks[i];
     }
 
-    // v3 header (44 bytes).
+    // Envelope header (44 bytes).
     std::vector<uint8_t> hdr;
     hdr.push_back(STEGO_MAGIC_0);
     hdr.push_back(STEGO_MAGIC_1);
@@ -573,8 +550,8 @@ bool Encode(const Image& cover, const uint8_t* payload, size_t payloadLen,
     }
 
     size_t needBits = src.size() * 8;
-    const size_t kHeaderBits = STEGO_HEADER_V3_LEN * 8;
-    const uint32_t kHeaderPx = STEGO_HEADER_V3_PX;
+    const size_t kHeaderBits = STEGO_HEADER_LEN * 8;
+    const uint32_t kHeaderPx = STEGO_HEADER_PX;
     uint32_t nPx = cover.w * cover.h;
     if (nPx <= kHeaderPx) return false;
     if (needBits < kHeaderBits || needBits - kHeaderBits > ((size_t)nPx - kHeaderPx) * 3) {
@@ -602,9 +579,9 @@ bool Encode(const Image& cover, const uint8_t* payload, size_t payloadLen,
     return true;
 }
 
-// --- v3 decode (44B header, PBKDF2 envelope) ---
-static bool DecodeV3(const Image& img, const uint8_t* hdr,
-                     const std::string& password, std::vector<uint8_t>& out) {
+// --- envelope decode (44B header, PBKDF2 envelope) ---
+static bool DecodeEnvelope(const Image& img, const uint8_t* hdr,
+                           const std::string& password, std::vector<uint8_t>& out) {
     uint16_t flags = (uint16_t)(hdr[6] | (hdr[7] << 8));
     uint32_t seed = (uint32_t)hdr[8] | ((uint32_t)hdr[9] << 8) |
                     ((uint32_t)hdr[10] << 16) | ((uint32_t)hdr[11] << 24);
@@ -612,7 +589,7 @@ static bool DecodeV3(const Image& img, const uint8_t* hdr,
                     ((uint32_t)hdr[14] << 16) | ((uint32_t)hdr[15] << 24);
     uint32_t comp = (uint32_t)hdr[16] | ((uint32_t)hdr[17] << 8) |
                     ((uint32_t)hdr[18] << 16) | ((uint32_t)hdr[19] << 24);
-    const uint8_t* salt = hdr + 24;  // v3 salt field (bytes [24..40))
+    const uint8_t* salt = hdr + 24;  // salt field (bytes [24..40))
     uint32_t hcrc = (uint32_t)hdr[40] | ((uint32_t)hdr[41] << 8) |
                     ((uint32_t)hdr[42] << 16) | ((uint32_t)hdr[43] << 24);
     if (stego::sha::Crc32(hdr, 40) != hcrc) return false;
@@ -633,10 +610,10 @@ static bool DecodeV3(const Image& img, const uint8_t* hdr,
     }
 
     uint32_t nPx = img.w * img.h;
-    if (nPx <= STEGO_HEADER_V3_PX) return false;
-    size_t bodyBits = ((size_t)nPx - STEGO_HEADER_V3_PX) * 3;
+    if (nPx <= STEGO_HEADER_PX) return false;
+    size_t bodyBits = ((size_t)nPx - STEGO_HEADER_PX) * 3;
     std::vector<uint32_t> place =
-        stego::codec::PlacementRange(STEGO_HEADER_V3_PX, nPx - STEGO_HEADER_V3_PX, seed);
+        stego::codec::PlacementRange(STEGO_HEADER_PX, nPx - STEGO_HEADER_PX, seed);
 
     std::vector<uint8_t> body(comp);
     auto readBody = [&](size_t bitOff, uint8_t* dst, size_t len) -> bool {
@@ -672,69 +649,6 @@ static bool DecodeV3(const Image& img, const uint8_t* hdr,
     return true;
 }
 
-// --- v2 decode (28B header, raw-password CTR + domain authkey; read-only) ---
-static bool DecodeV2(const Image& img, const uint8_t* hdr,
-                     const std::string& password, std::vector<uint8_t>& out) {
-    uint16_t flags = (uint16_t)(hdr[6] | (hdr[7] << 8));
-    uint32_t seed = (uint32_t)hdr[8] | ((uint32_t)hdr[9] << 8) |
-                    ((uint32_t)hdr[10] << 16) | ((uint32_t)hdr[11] << 24);
-    uint32_t orig = (uint32_t)hdr[12] | ((uint32_t)hdr[13] << 8) |
-                    ((uint32_t)hdr[14] << 16) | ((uint32_t)hdr[15] << 24);
-    uint32_t comp = (uint32_t)hdr[16] | ((uint32_t)hdr[17] << 8) |
-                    ((uint32_t)hdr[18] << 16) | ((uint32_t)hdr[19] << 24);
-    uint32_t hcrc = (uint32_t)hdr[24] | ((uint32_t)hdr[25] << 8) |
-                    ((uint32_t)hdr[26] << 16) | ((uint32_t)hdr[27] << 24);
-    if (stego::sha::Crc32(hdr, 24) != hcrc) return false;
-    if (flags & STEGO_F_COMPRESS) return false;
-    bool enc = (flags & STEGO_F_ENCRYPT) != 0;
-    bool auth = (flags & STEGO_F_AUTH) != 0;
-    if ((enc || auth) && password.empty()) return false;
-    if (auth && !enc) return false;
-    if (comp == 0) return false;
-
-    uint32_t nPx = img.w * img.h;
-    if (nPx <= 75) return false;
-    size_t bodyBits = ((size_t)nPx - 75) * 3;
-    std::vector<uint32_t> place =
-        stego::codec::PlacementRange(75, nPx - 75, seed);
-
-    std::vector<uint8_t> body(comp);
-    auto readBody = [&](size_t bitOff, uint8_t* dst, size_t len) -> bool {
-        return ReadStream(img, place, bodyBits, bitOff, dst, len);
-    };
-    if (!readBody(0, body.data(), comp)) return false;
-
-    const size_t kCrcBit = (size_t)comp * 8;
-    const size_t kTagBit = ((size_t)comp + 4) * 8;
-    std::vector<uint8_t> stored;
-    stored.reserve(28 + comp);
-    stored.insert(stored.end(), hdr, hdr + 28);
-    stored.insert(stored.end(), body.begin(), body.end());
-    if (auth) {
-        uint8_t tag[32];
-        if (!readBody(kTagBit, tag, 32)) return false;
-        std::string ak = std::string("stego-auth-v2") + password;
-        std::vector<uint8_t> h =
-            stego::sha::Hash((const uint8_t*)ak.data(), ak.size());
-        std::vector<uint8_t> m =
-            stego::sha::Hmac(h.data(), h.size(), stored.data(), stored.size());
-        if (memcmp(m.data(), tag, 32) != 0) return false;
-    }
-    if (enc) {
-        std::vector<uint8_t> ks(comp);
-        stego::sha::Keystream(password, ks.data(), ks.size());
-        for (size_t i = 0; i < comp; i++) body[i] ^= ks[i];
-    }
-    uint8_t cb[4];
-    if (!readBody(kCrcBit, cb, 4)) return false;
-    uint32_t dcrc = (uint32_t)cb[0] | ((uint32_t)cb[1] << 8) |
-                    ((uint32_t)cb[2] << 16) | ((uint32_t)cb[3] << 24);
-    if (orig != comp) return false;
-    if (stego::sha::Crc32(body.data(), body.size()) != dcrc) return false;
-    out.swap(body);
-    return true;
-}
-
 bool Decode(const Image& img, const std::string& password,
             std::vector<uint8_t>& out) {
     out.clear();
@@ -742,53 +656,17 @@ bool Decode(const Image& img, const std::string& password,
     if (img.rgb.size() < (size_t)img.w * img.h * 3) return false;
     size_t totalBits = (size_t)img.w * img.h * 3;
 
-    // v3 header attempt (44 bytes, sequential pixels [0,118)).
-    uint8_t hdr3[STEGO_HEADER_V3_LEN];
-    {
-        std::vector<uint32_t> seq = codec::Placement(img.w * img.h, 0);
-        if (ReadStream(img, seq, totalBits, 0, hdr3, sizeof(hdr3))) {
-            if (hdr3[0] == STEGO_MAGIC_0 && hdr3[1] == STEGO_MAGIC_1 &&
-                hdr3[2] == STEGO_MAGIC_2 && hdr3[3] == STEGO_MAGIC_3) {
-                uint16_t ver = (uint16_t)(hdr3[4] | (hdr3[5] << 8));
-                if (ver == STEGO_FORMAT_VERSION) {
-                    if (DecodeV3(img, hdr3, password, out)) return true;
-                    return false;  // valid v3 header that fails = reject
-                }
-            }
-        }
-    }
-
-    // v2 header attempt (28 bytes, read-only legacy path).
-    uint8_t hdr[28];
-    {
-        std::vector<uint32_t> seq = codec::Placement(img.w * img.h, 0);
-        if (ReadStream(img, seq, totalBits, 0, hdr, sizeof(hdr))) {
-            if (hdr[0] == STEGO_MAGIC_0 && hdr[1] == STEGO_MAGIC_1 &&
-                hdr[2] == STEGO_MAGIC_2 && hdr[3] == STEGO_MAGIC_3) {
-                uint16_t ver = (uint16_t)(hdr[4] | (hdr[5] << 8));
-                if (ver == 0x0002) {
-                    if (DecodeV2(img, hdr, password, out)) return true;
-                    return false;
-                }
-            }
-        }
-    }
-
-    // Legacy v1 path (deprecated read-only): [u32 size][payload], sequential.
-    uint8_t szb[4];
-    {
-        std::vector<uint32_t> seq = codec::Placement(img.w * img.h, 0);
-        if (!ReadStream(img, seq, totalBits, 0, szb, 4)) return false;
-        uint32_t size = (uint32_t)szb[0] | ((uint32_t)szb[1] << 8) |
-                        ((uint32_t)szb[2] << 16) | ((uint32_t)szb[3] << 24);
-        if (size == 0 || size > totalBits / 8) return false;
-        out.resize(size);
-        if (!ReadStream(img, seq, totalBits, 32, out.data(), size)) {
-            out.clear();
-            return false;
-        }
-    }
-    return true;
+    // Single envelope header (44 bytes, sequential pixels [0,118)).
+    // Anything else - wrong magic, wrong version, CRC/auth failure -
+    // is rejected. No fallbacks.
+    uint8_t hdr[STEGO_HEADER_LEN];
+    std::vector<uint32_t> seq = codec::Placement(img.w * img.h, 0);
+    if (!ReadStream(img, seq, totalBits, 0, hdr, sizeof(hdr))) return false;
+    if (hdr[0] != STEGO_MAGIC_0 || hdr[1] != STEGO_MAGIC_1 ||
+        hdr[2] != STEGO_MAGIC_2 || hdr[3] != STEGO_MAGIC_3) return false;
+    uint16_t ver = (uint16_t)(hdr[4] | (hdr[5] << 8));
+    if (ver != STEGO_FORMAT_VERSION) return false;
+    return DecodeEnvelope(img, hdr, password, out);
 }
 
 }  // namespace stego

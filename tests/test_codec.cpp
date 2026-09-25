@@ -115,27 +115,6 @@ int main() {
         printf("ok capacity-refusal\n");
     }
 
-    // Legacy v1 read: [u32 size][payload] sequential.
-    {
-        stego::Image c = Cover(32, 32);
-        std::string p = "hello-v1";
-        std::vector<uint8_t> stream;
-        uint32_t s = (uint32_t)p.size();
-        for (int i = 0; i < 4; i++) stream.push_back((uint8_t)(s >> (i * 8)));
-        stream.insert(stream.end(), p.begin(), p.end());
-        size_t k = 0;
-        for (size_t i = 0; i < stream.size() * 8; i++) {
-            uint32_t px = (uint32_t)(i / 3);
-            c.rgb[px * 3 + (i % 3)] |= (uint8_t)((stream[i / 8] >> (i % 8)) & 1);
-            k++;
-        }
-        (void)k;
-        std::vector<uint8_t> d;
-        CHECK(stego::Decode(c, "", d));
-        CHECK(d.size() == p.size() && memcmp(d.data(), p.data(), p.size()) == 0);
-        printf("ok v1-read\n");
-    }
-
     if (g_fail == 0) printf("ALL PASS\n");
     return g_fail ? 1 : 0;
 }

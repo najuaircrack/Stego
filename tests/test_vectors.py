@@ -48,7 +48,7 @@ def test_malformed_bad_magic():
     rgb = list(rgb)
     rgb[0] ^= 1
     rgb[1] ^= 1
-    # broken magic -> v1 fallback likely rejects too (garbage size)
+    # broken magic -> immediate reject, never decoded as anything else
     got = decode_image(rgb, 64, 64)
     assert got != b'hello'
 
@@ -64,7 +64,7 @@ def test_malformed_bad_version():
 
 
 def test_malformed_oversize_claim():
-    # v1-style garbage size header must be rejected, never allocated on.
+    # garbage size field with no magic must be rejected, never allocated on.
     rgb = [0] * (32 * 32 * 3)
     # craft size = 0xFFFFFF00 at bits [0,32)
     for i in range(8, 32):

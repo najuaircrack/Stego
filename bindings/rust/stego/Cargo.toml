@@ -1,6 +1,6 @@
 [package]
 name = "stego"
-version = "2.1.1"
+version = "3.0.0"
 edition = "2021"
 description = "Steganography: hide arbitrary bytes inside PNG images (safe wrapper)"
 license = "MIT"
@@ -13,4 +13,4 @@ categories = ["encoding", "multimedia"]
 rust-version = "1.70"
 
 [dependencies]
-stego-sys = { version = "=2.1.1", path = "../stego-sys" }
+stego-sys = { version = "=3.0.0", path = "../stego-sys" }

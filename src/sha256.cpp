@@ -107,26 +107,6 @@ std::vector<uint8_t> Hash(const uint8_t* data, size_t len) {
     return out;
 }
 
-// CTR keystream: SHA256(pw || BE32(counter)) concatenated.
-void Keystream(const std::string& pw, uint8_t* out, size_t len) {
-    uint32_t ctr = 0;
-    size_t pos = 0;
-    while (pos < len) {
-        Ctx c;
-        Init(c);
-        Update(c, (const uint8_t*)pw.data(), pw.size());
-        uint8_t cb[4] = {(uint8_t)(ctr >> 24), (uint8_t)(ctr >> 16),
-                         (uint8_t)(ctr >> 8), (uint8_t)ctr};
-        Update(c, cb, 4);
-        uint8_t d[32];
-        Final(c, d);
-        size_t take = len - pos < 32 ? len - pos : 32;
-        memcpy(out + pos, d, take);
-        pos += take;
-        ctr++;
-    }
-}
-
 // HMAC-SHA256(key, msg).
 std::vector<uint8_t> Hmac(const uint8_t* key, size_t klen,
                            const uint8_t* msg, size_t mlen) {
@@ -172,7 +152,7 @@ uint32_t Crc32(const uint8_t* data, size_t len) {
     return crc ^ 0xFFFFFFFFu;
 }
 
-// CTR keystream over a raw 32-byte key (v3 envelope path).
+// CTR keystream over a raw 32-byte key (envelope path).
 void KeystreamRaw(const uint8_t* key32, uint8_t* out, size_t len) {
     uint32_t ctr = 0;
     size_t pos = 0;

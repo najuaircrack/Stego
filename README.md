@@ -207,7 +207,7 @@ bindings/rust/   stego-sys (FFI) + stego (safe wrapper)
 examples/        one decode-to-file template per language
 tests/           round-trips, golden vectors, malformed inputs, boundaries,
                  cross-implementation matrix (C++ <-> Python agree byte-wise)
-docs/            FORMAT (the spec) - API - MIGRATION - INTEGRATION - SECURITY
+docs/            FORMAT (the spec) - API - INTEGRATION - SECURITY
 ```
 
 ## Practical rules that will save you trouble
@@ -228,10 +228,10 @@ docs/            FORMAT (the spec) - API - MIGRATION - INTEGRATION - SECURITY
 
 ## Versioning
 
-`VERSION` file is authoritative (`2.1.1`). `STEGO_FORMAT_VERSION` (currently 3)
-names the written layout; `STEGO_ABI_VERSION` (currently 1) names the C ABI -
-a format bump never implies an ABI bump. Old layouts (v1, v2) stay decodable;
-see `docs/MIGRATION.md`.
+`VERSION` file is authoritative (`3.0.0`). `STEGO_FORMAT_VERSION` (currently 3)
+names the envelope layout; `STEGO_ABI_VERSION` (currently 1) names the C ABI -
+a format bump never implies an ABI bump. One format only: anything else is
+rejected, no legacy fallbacks.
 
 ## License
 

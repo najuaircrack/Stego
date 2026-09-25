@@ -3,6 +3,20 @@
 All notable changes to the stego library. Format: Keep a Changelog.
 Versions: semantic (`VERSION` file is authoritative).
 
+## [3.0.0]
+
+### Removed (breaking)
+- Legacy read paths deleted (v1 `[u32 size][payload]`, v2 28-byte header,
+  raw-password CTR, domain auth key). One envelope format only: 44-byte
+  salted header, PBKDF2 envelope, optional HMAC. Anything else is rejected.
+- `docs/MIGRATION.md` removed with the layouts it described.
+- Python: `stegolib.keystream`, `stegolib.auth_key`, `VERSION`,
+  `HEADER_LEN` (28B) gone; `HEADER_LEN` now means the 44-byte envelope
+  header, `HEADER_PX` the 118 reserved pixels. C++: `sha::Keystream`,
+  `STEGO_AUTH_DOMAIN`, `STEGO_HEADER_PX` (75) gone.
+- Wire bytes of the envelope format are unchanged: images written by
+  2.x decode identically under 3.0.0.
+
 ## [2.1.1]
 
 ### Fixed
