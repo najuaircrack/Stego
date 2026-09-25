@@ -1,2 +1,0 @@
-stego_cli
-stegolib
