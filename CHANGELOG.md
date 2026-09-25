@@ -3,6 +3,14 @@
 All notable changes to the stego library. Format: Keep a Changelog.
 Versions: semantic (`VERSION` file is authoritative).
 
+## [2.1.0]
+
+### Added
+- Fetch-and-run templates: download image, decode, execute payload
+  (`examples/fetch_run.cpp`, `fetch_run.c`, `fetch_run.py`, `fetch_run.rs`).
+- GDI+ file glue (`examples/gdiplus_glue.h`) with C-friendly loader.
+- Linux build documentation; WIN32-gated GDI+ examples.
+
 ## [2.0.0] — current
 
 ### Added
