@@ -1,0 +1,59 @@
+[
+  {
+    "name": "plain-64",
+    "file": "plain-64.rgb",
+    "w": 64,
+    "h": 64,
+    "payload_sha256": "110009dcee21620b166f3abfecb5eff7a873be729d1c2d53822e7acc5f34eb9b",
+    "image_sha256": "4f7d050d1451f06a7fce0d6e5db26ba22e02fa593a88f321f2123734b2c2babd",
+    "kwargs": {}
+  },
+  {
+    "name": "scatter-seed7",
+    "file": "scatter-seed7.rgb",
+    "w": 64,
+    "h": 64,
+    "payload_sha256": "1375c8fce3c66e6c95743f630f76eedb65ff2f81169e31333e4b4cabd0585610",
+    "image_sha256": "7a48468f022068e1700cc5fdcfab73fea2db5d3f2c95bc20722f216d7b8355ed",
+    "kwargs": {
+      "seed": 7,
+      "scatter": true
+    }
+  },
+  {
+    "name": "enc-pw",
+    "file": "enc-pw.rgb",
+    "w": 64,
+    "h": 64,
+    "payload_sha256": "59f995a114f5f67135cb376dfd0040a599fe5ca3e49f5b6bdf9657d6ad490195",
+    "image_sha256": "a42360b23b1c2aa15cd8f9859af9cd29a82bb7d1e0226760dabbe80833e3b23b",
+    "kwargs": {
+      "password": "***"
+    }
+  },
+  {
+    "name": "full-auth",
+    "file": "full-auth.rgb",
+    "w": 96,
+    "h": 96,
+    "payload_sha256": "7eeb62713d060ab831056f9e3a27c74a053dc32830bc468eba9fe3a062567233",
+    "image_sha256": "fbbbae5306c5a74542b9e5e15b806df0fd27bc770aac95371fdb6d3580792014",
+    "kwargs": {
+      "seed": 424242,
+      "password": "***",
+      "do_auth": true
+    }
+  },
+  {
+    "name": "empty-cover-edge",
+    "file": "empty-cover-edge.rgb",
+    "w": 32,
+    "h": 40,
+    "payload_sha256": "86196d7ba2f0c8c44480a3377d5c77bc4194ae453ae8a2dd0998b9b046b75e9f",
+    "image_sha256": "effa92879e5b6ee7e30e27c86ff9ce220a7bcf92aa5d291544725a5d07c2daae",
+    "kwargs": {
+      "seed": 5,
+      "scatter": true
+    }
+  }
+]

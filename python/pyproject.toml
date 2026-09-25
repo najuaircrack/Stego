@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "stego-tool"
+version = "2.0.0"
+description = "Steganography: hide arbitrary bytes inside PNG images"
+readme = { text = "Steganography library: hide arbitrary bytes inside PNG images. See tools/stego/README.md." }
+requires-python = ">=3.10"
+license = { text = "MIT" }
+dependencies = ["Pillow>=10"]
+
+[project.scripts]
+stego = "stego_cli:main"
+
+[tool.setuptools]
+# Single modules (not packages): both ship at top level.
+py-modules = ["stegolib", "stego_cli"]

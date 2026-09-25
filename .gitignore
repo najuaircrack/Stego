@@ -1,0 +1,11 @@
+# Build + test artifacts (never commit)
+build/
+build*/
+target/
+__pycache__/
+*.pyc
+.pytest_cache/
+out/
+.vs/
+.vscode/
+*.user
