@@ -47,7 +47,13 @@ jobs:
             exit 1
           }
           $tag = "${{ github.ref_name }}".TrimStart('v')
-          $ver = (Get-Content $verFile -Raw).Trim()
+          $verRaw = Get-Content $verFile -Raw
+          $verLen = (Get-Item $verFile).Length
+          if ([string]::IsNullOrWhiteSpace($verRaw)) {
+            Write-Host "::error::VERSION is empty or unreadable (on-disk size: $verLen bytes); refusing to publish from a corrupt tree."
+            exit 1
+          }
+          $ver = $verRaw.Trim()
           if ($tag -ne $ver) {
             Write-Host "::error::tag v$tag != VERSION $ver"
             exit 1
