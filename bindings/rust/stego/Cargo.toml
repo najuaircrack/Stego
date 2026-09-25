@@ -1,9 +1,16 @@
 [package]
 name = "stego"
-version = "2.1.0"
+version = "2.1.1"
 edition = "2021"
 description = "Steganography: hide arbitrary bytes inside PNG images (safe wrapper)"
 license = "MIT"
+repository = "https://github.com/najuaircrack/Stego"
+homepage = "https://github.com/najuaircrack/Stego"
+documentation = "https://github.com/najuaircrack/Stego/blob/main/docs/API.md"
+readme = "../../README.md"
+keywords = ["steganography", "stego", "png", "codec"]
+categories = ["encoding", "multimedia"]
+rust-version = "1.70"
 
 [dependencies]
-stego-sys = { path = "../stego-sys" }
+stego-sys = { version = "=2.1.1", path = "../stego-sys" }

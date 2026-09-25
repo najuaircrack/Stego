@@ -3,6 +3,13 @@
 All notable changes to the stego library. Format: Keep a Changelog.
 Versions: semantic (`VERSION` file is authoritative).
 
+## [2.1.1]
+
+### Fixed
+- Version-string unanimity (library, headers, docs now agree with `VERSION`).
+- CI: `project()` declaration, MinGW make package, runner pytest/Pillow deps.
+- Release workflow publishes artifacts on version tags.
+
 ## [2.1.0]
 
 ### Added
@@ -11,7 +18,7 @@ Versions: semantic (`VERSION` file is authoritative).
 - GDI+ file glue (`examples/gdiplus_glue.h`) with C-friendly loader.
 - Linux build documentation; WIN32-gated GDI+ examples.
 
-## [2.0.0] — current
+## [2.0.0] (superseded)
 
 ### Added
 - Headered binary format (magic/version/flags/seed/sizes/salt/header-CRC).
@@ -31,5 +38,7 @@ Versions: semantic (`VERSION` file is authoritative).
 - Legacy v1 layout (`[u32 size][payload]`) is read-only deprecated.
 
 ### Removed
-- Nothing executable: no runners, no loaders, no in-memory execution
-  (never present in this library; stated here so it stays that way).
+- Nothing executable from the library core: no in-memory execution, no
+  loaders, no process injection (stated here so it stays that way).
+  Dual-use operator templates live explicitly under `examples/fetch_run.*`
+  with warnings; see `docs/SECURITY.md`.

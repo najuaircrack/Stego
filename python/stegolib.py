@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
-"""stegolib.py — codec core (mirrors src/*.cpp bit-for-bit).
+"""stegolib.py - codec core (mirrors src/*.cpp bit-for-bit).
 
 Layout: [28B header][body][data_crc32][hmac?], header pixels [0,75)
 sequential, body via PlacementRange(75, N-75, seed). See docs/FORMAT.md.
 """
 import hashlib
 import hmac as hmac_mod
+import os
 import struct
 import zlib
 
@@ -100,19 +101,9 @@ def auth_key(pw):
 def kdf(pw, salt):
     # v3: PBKDF2-HMAC-SHA256 -> 64B (enc[0..32) + auth[32..64)).
     # Password encoding: UTF-8 bytes (FORMAT.md).
-    import hashlib as _hl
     if isinstance(pw, str):
         pw = pw.encode('utf-8')
-    return _hl.pbkdf2_hmac('sha256', pw, salt, PBKDF2_ITER, 64)
-
-
-def keystream_raw(key32, n):
-    out = bytearray()
-    ctr = 0
-    while len(out) < n:
-        out += hashlib.sha256(key32 + struct.pack('>I', ctr)).digest()
-        ctr += 1
-    return bytes(out[:n])
+    return hashlib.pbkdf2_hmac('sha256', pw, salt, PBKDF2_ITER, 64)
 
 
 def encode_image(pixels, w, h, payload, seed=0, password='',
@@ -129,8 +120,7 @@ def encode_image(pixels, w, h, payload, seed=0, password='',
     body = bytearray(payload)
     salt = b'\x00' * SALT_LEN  # header field always present (zeros if unused)
     if password:
-        import os as _os
-        salt = _os.urandom(SALT_LEN)
+        salt = os.urandom(SALT_LEN)
         dk = kdf(password, salt)
         ks = keystream_raw(dk[:32], len(body))
         body = bytearray(b ^ ks[i] for i, b in enumerate(body))
@@ -154,11 +144,10 @@ def encode_image(pixels, w, h, payload, seed=0, password='',
     stream = bytes(hdr) + bytes(body)
     tag = None
     if do_auth:
-        # Tag covers header+ciphertext ONLY (not data_crc32) — must match
+        # Tag covers header+ciphertext ONLY (not data_crc32) - must match
         # the decode-side span exactly.
-        import hmac as _hm
         ak = kdf(password, salt)[32:]
-        tag = _hm.new(ak, stream, hashlib.sha256).digest()
+        tag = hmac_mod.new(ak, stream, hashlib.sha256).digest()
     stream += struct.pack('<I', crc32(payload))
     if do_auth:
         stream += tag

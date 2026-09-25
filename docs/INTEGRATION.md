@@ -1,4 +1,4 @@
-# INTEGRATION — linking the library into products
+# INTEGRATION - linking the library into products
 
 ## CMake (recommended)
 
@@ -8,21 +8,20 @@ target_link_libraries(myproduct PRIVATE stego::stego)
 ```
 
 Requires C++17. No third-party dependencies (SHA-256/CRC/HMAC/PRNG are
-vendored; compression backend intentionally absent — see `FORMAT.md`).
+vendored; compression backend intentionally absent - see `FORMAT.md`).
 `STEGO_BUILD_TESTS=OFF` skips the test targets for slim embeds.
 
 ## Replacing hand-rolled decoders
 
-Both in-tree consumers (`tools/installer/src/stego.cpp`,
-`tools/dist-windows/modules/common/src/stego.cpp`) duplicate a subset of
-this library (sequential LSB + size header + MZ check). Migration:
+If your product duplicates a subset of this library (sequential LSB + size
+header + magic check), migration is:
 
 1. Link `stego::stego`, delete the local decoder.
 2. Convert PNG to RGB (GDI+ glue in `examples/`, or existing product code).
-3. Call `stego::Decode(rgb)`: current images AND legacy v1 images both
+3. Call `stego::Decode(rgb)`: current images AND legacy v1/v2 images all
    decode, so already-hosted files keep working during rollout.
 4. Re-embed hosted images in the current format when convenient
-   (procedure: `docs/MIGRATION.md`); keep the legacy read path until then.
+   (procedure: `docs/MIGRATION.md`); keep the legacy read paths until then.
 
 ## Constraints the library guarantees
 

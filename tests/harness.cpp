@@ -1,4 +1,4 @@
-// harness.cpp — argv-driven cross-implementation test helper.
+// harness.cpp - argv-driven cross-implementation test helper.
 //   harness enc <w> <h> <seed> <pw|-> <auth01> <in.bin> <out.rgb>
 //   harness dec <w> <h> <pw|-> <in.rgb> <out.bin>
 // RGB files are raw triplets (no PNG container); pytest drives both sides.

@@ -1,6 +1,6 @@
-# stego — portable steganography library (static, add_subdirectory-able).
+# stego - portable steganography library (static, add_subdirectory-able).
 cmake_minimum_required(VERSION 3.20)
-project(stego VERSION 2.1.0 LANGUAGES C CXX)
+project(stego VERSION 2.1.1 LANGUAGES C CXX)
 
 add_library(stego STATIC
     src/sha256.cpp
@@ -43,7 +43,7 @@ if(STEGO_BUILD_EXAMPLES)
             "${CMAKE_CURRENT_SOURCE_DIR}/single_include")
         target_link_libraries(fetch_run_c PRIVATE wininet gdiplus)
     endif()
-    # extract.c uses only the C ABI over raw RGB (no platform code) — no libs.
+    # extract.c uses only the C ABI over raw RGB (no platform code) - no libs.
     add_executable(extract_c examples/extract.c)
     set_source_files_properties(examples/extract.c PROPERTIES LANGUAGE CXX)
     target_include_directories(extract_c PRIVATE

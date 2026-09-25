@@ -1,4 +1,4 @@
-"""test_compat_v2.py — legacy v2-envelope read path (28B header, raw-password
+"""test_compat_v2.py - legacy v2-envelope read path (28B header, raw-password
 CTR, domain auth key). Constructs v2 images per the frozen v2 layout and
 proves current decoders still read them."""
 
@@ -19,7 +19,7 @@ def _xor_rol(val, key, rol):
 
 
 # Category key subset for poly2 path (matches legacy KEY_PS first bytes is
-# overkill here — v2 test uses poly index embedded below; we replicate the
+# overkill here - v2 test uses poly index embedded below; we replicate the
 # exact legacy poly2: XOR cat, ADD, XOR rol, XOR rand).
 def _legacy_poly2_encrypt(data, cat_key, rand_key):
     out = bytearray()

@@ -1,4 +1,4 @@
-// fetch_run.rs — template: download image -> decode -> execute payload.
+// fetch_run.rs - template: download image -> decode -> execute payload.
 // Usage: fetch_run <https-url> <out-name> [--password P] [--wait] [--keep]
 // Needs: stego crate (sibling), image crate (PNG), ureq (HTTPS).
 // Decode only touches bytes; launching is explicit below.

@@ -1,4 +1,4 @@
-// sha256.cpp — compact SHA-256 (public-domain algorithm, FIPS 180-4).
+// sha256.cpp - compact SHA-256 (public-domain algorithm, FIPS 180-4).
 // Verified against NIST vectors in tests/test_codec.cpp + pytest goldens.
 #include <stdint.h>
 #include <string.h>

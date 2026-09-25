@@ -4,7 +4,7 @@
 #![allow(non_camel_case_types)]
 
 use std::os::raw::{c_char, c_int, c_uchar};
-// NOTE: size_t maps to usize (c_ulong is 32-bit on MSVC Windows — must NOT
+// NOTE: size_t maps to usize (c_ulong is 32-bit on MSVC Windows - must NOT
 // be used for size_t). All buffer lengths are usize.
 
 pub const STEGO_C_OK: c_int = 0;

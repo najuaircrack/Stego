@@ -1,4 +1,4 @@
-// stego_c.h — thin C ABI (FFI/Lua-ready). Mirrors stego.h semantics.
+// stego_c.h - thin C ABI (FFI/Lua-ready). Mirrors stego.h semantics.
 //
 // Ownership: all inputs are borrowed (caller retains). Outputs marked
 // callee-allocated MUST be released with stego_free(). Error codes are
@@ -39,6 +39,10 @@ int stego_encode(const stego_image_t* cover,
                  const stego_options_t* opt, uint8_t* out_rgb);
 
 // out/out_len: callee mallocs (caller frees with stego_free).
+// NOTE: stego_decode currently collapses all decode failures (bad format,
+// CRC mismatch, auth failure, wrong password) to STEGO_C_ERR_FORMAT.
+// _CRC/_AUTH codes are reserved for granular reporting in a later ABI
+// bump (STEGO_ABI_VERSION will change if their meaning is ever used).
 int stego_decode(const stego_image_t* img, const char* password,
                  uint8_t** out, size_t* out_len);
 void stego_free(void* p);

@@ -1,10 +1,10 @@
-// api.cpp — Encode (v3) / Decode (v3 + v2-legacy + v1-legacy) + C ABI.
+// api.cpp - Encode (v3) / Decode (v3 + v2-legacy + v1-legacy) + C ABI.
 #include "stego/stego.h"
 #include "stego/stego_c.h"
 #include "stego/format.h"
 #include <string.h>
 #include <random>
-#include <random>
+#include <cstdlib>
 
 namespace stego {
 namespace sha {
@@ -30,7 +30,7 @@ int GetBit(const std::vector<uint8_t>& rgb, uint32_t w,
            const std::vector<uint32_t>& place, size_t k);
 }  // namespace codec
 
-const char* Version() { return "2.0.0"; }
+const char* Version() { return "2.1.1"; }
 
 size_t Capacity(uint32_t w, uint32_t h) {
     // v3: 118 header pixels reserved; body must fit data_crc32 (+tag).

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""test_roundtrip.py — pytest matrix: python self-round-trips + C++ cross-impl.
+"""test_roundtrip.py - pytest matrix: python self-round-trips + C++ cross-impl.
 
 CROSS_IMPL requires --harness <path-to-stego_harness>.
 SHA-256 goldens pin the vendored implementation (NIST vectors).

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""fetch_run.py — template: download image -> decode -> execute payload.
+"""fetch_run.py - template: download image -> decode -> execute payload.
 Usage: fetch_run.py <https-url> <out-name> [--password P] [--wait] [--keep]
 Decode only touches bytes; launching is explicit below.
 """

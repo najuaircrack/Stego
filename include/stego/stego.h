@@ -1,5 +1,5 @@
-// stego.h — public C++ API. Operates on raw RGB buffers (no file IO;
-// products convert PNG<->RGB with GDI+/PIL — see examples/gdiplus_glue.h).
+// stego.h - public C++ API. Operates on raw RGB buffers (no file IO;
+// products convert PNG<->RGB with GDI+/PIL - see examples/gdiplus_glue.h).
 #pragma once
 #include <stdint.h>
 #include <stddef.h>
@@ -35,7 +35,7 @@ bool Decode(const Image& img, const std::string& password,
 // Capacity in payload bytes for given dims + options overhead estimate.
 size_t Capacity(uint32_t w, uint32_t h);
 
-// Library version string ("2.0.0").
+// Library version string ("2.1.1").
 const char* Version();
 
 }  // namespace stego

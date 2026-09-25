@@ -1,10 +1,10 @@
-# STEGO format specification (normative, version 2.0.0)
+# STEGO format specification (normative, version 2.1.1)
 
 All integers little-endian. Layout versions: v1 `[u32 size][payload]`
 sequential (read-only legacy); v2 28-byte header (read-only legacy);
 **v3 44-byte salted envelope (current write path)**. Decoders try v3, then
 v2, then v1. `STEGO_FORMAT_VERSION` (currently `0x0003`) names the written
-layout; `STEGO_ABI_VERSION` (currently `0x0001`) names the C ABI — a format
+layout; `STEGO_ABI_VERSION` (currently `0x0001`) names the C ABI - a format
 bump MUST NOT imply an ABI bump. All cryptography uses SHA-256 (see note
 inside `src/sha256.cpp` for the implementation source).
 
@@ -41,7 +41,7 @@ orig, comp, reserved, then `header_crc32` over bytes `[0..24)`.
 
 Header pixels `[0,75)` are ALWAYS sequential (findable without the seed).
 The body stream (ciphertext + `data_crc32` [+ HMAC tag]) starts at body
-stream bit 0, placed via `PlacementRange(75, N-75, seed)` — i.e. body bit
+stream bit 0, placed via `PlacementRange(75, N-75, seed)` - i.e. body bit
 `m` lives in pixel `perm[m/3]`, channel `m%3`, where `perm` is the
 Fisher-Yates permutation of pixels `[75,N)`. `seed == 0` degenerates to
 sequential (legacy-compatible layout for the whole image).
@@ -50,23 +50,31 @@ v1 compatibility: v1 images carry no header; decoders attempt the
 current header first (magic + header CRC), then fall back to the legacy
 `[u32 size][payload]` sequential layout (read-only, deprecated).
 
-## Stage pipeline (encode order; decode reverses)
+## Stage pipeline (encode order; decode reverses) - v3 (current)
 
-1. Optional `COMPRESS` (currently rejected by encoders — backend deferred).
-2. Optional `ENCRYPT`: SHA-256-CTR keystream.
-   `keystream = SHA256(pw || BE32(counter))` concatenated from counter 0.
+1. Optional `COMPRESS` (currently rejected by encoders - backend deferred).
+2. Optional `ENCRYPT`: SHA-256-CTR keystream over the 32-byte encryption key.
+   `keystream = SHA256(enckey || BE32(counter))` concatenated from counter 0.
 3. Scatter placement (if `SCATTER` or `seed != 0`): pixel permutation from
    xorshift128+ seeded by `splitmix64(seed)` (exact algorithm in `codec.cpp`;
-   both implementations must match bit-for-bit — see golden vectors).
+   both implementations must match bit-for-bit - see golden vectors).
 4. `data_crc32`: CRC32 of the ORIGINAL plaintext payload, appended as bits.
-5. `AUTH` (requires `ENCRYPT`): `HMAC-SHA256(authkey, header[0..28) ||
-   embedded-ciphertext-bytes)`, appended as bits, where
-   `authkey = SHA256("stego-auth-v2" || password)`.
-   NOTE: the tag covers header + ciphertext ONLY — `data_crc32` is
+5. `AUTH` (requires `ENCRYPT`): `HMAC-SHA256(authkey, header[0..44) ||
+   embedded-ciphertext-bytes)`, appended as bits.
+   NOTE: the tag covers header + ciphertext ONLY - `data_crc32` is
    deliberately outside the HMAC input (both sides must match exactly).
 
-## Key derivation
+## Key derivation (v3)
 
-- Encryption keystream: raw password bytes (UTF-8), no stretching
-  (documented limitation; use long random passwords).
+- Password encoding: UTF-8 bytes as given.
+- KDF: PBKDF2-HMAC-SHA256, 100,000 iterations, 16-byte random salt stored
+  in the header, 64-byte output split into encryption key `[0..32)` and
+  authentication key `[32..64)`.
+- Salt doubles as the CTR nonce: unique keystream per message.
+
+## v2 legacy crypto (read-only path - do not use for new embeds)
+
+- Encryption keystream: raw password bytes (UTF-8), no stretching.
 - Auth key: `SHA256("stego-auth-v2" || password)`.
+- Keystream: `SHA256(pw || BE32(counter))`. HMAC input: header `[0..28)`
+  plus ciphertext. Kept byte-compatible for decoding old images only.

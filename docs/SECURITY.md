@@ -1,4 +1,4 @@
-# SECURITY.md — stego threat model (read before shipping)
+# SECURITY.md - stego threat model (read before shipping)
 
 ## What this library is and is not
 
@@ -13,8 +13,10 @@
   no-password images provide **zero confidentiality**.
 - **Recovered data is untrusted data.** Decoders validate structure
   (magic, version, CRC, HMAC) and fail cleanly, but a successfully decoded
-  payload is still arbitrary bytes. This library **never executes**
-  recovered payloads; execution examples do not exist in this project.
+  payload is still arbitrary bytes. The core library **never executes**
+  recovered payloads. The `examples/fetch_run.*` templates demonstrate
+  download-decode-execute flows for operators who accept that responsibility:
+  they are explicitly dual-use samples, not part of the library's guarantees.
 
 ## Carrier rules
 
@@ -28,12 +30,15 @@
 
 - Minimum 20 random characters for real secrecy; KDF is CPU-hard (~0.1s)
   but the keystream has no nonce beyond the per-message salt (reused
-  passwords across images are isolated by unique salts — by design).
+  passwords across images are isolated by unique salts - by design).
 - Wrong password and tampered images fail with indistinguishable errors
   (no oracle beyond pass/fail).
 
 ## Reporting
 
-Security issues in the crypto/format handling: open a private report with
-a minimal reproducer (image + expected/actual). While pre-1.0, breaking
-format fixes land as minor version bumps with migration notes.
+Security issues in the crypto/format handling: open a GitHub issue with
+the `security` label including a minimal reproducer (image +
+expected/actual), or email the maintainers listed under
+`github.com/najuaircrack/Stego`. Please allow 90 days before public
+disclosure. Supported range: the latest two minor releases (currently
+2.1.x); older lines receive no fixes.

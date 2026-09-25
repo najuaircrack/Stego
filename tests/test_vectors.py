@@ -1,4 +1,4 @@
-"""test_vectors.py — golden files, malformed battery, boundary tests."""
+"""test_vectors.py - golden files, malformed battery, boundary tests."""
 import hashlib
 import json
 import os

@@ -1,6 +1,6 @@
 # stego-tool (Python)
 
-`stego hide / reveal / info` command plus the importable `stegolib` API —
+`stego hide / reveal / info` command plus the importable `stegolib` API -
 PNG steganography bindings for the Stego C++ core (pure-Python codec,
 bit-identical with all implementations).
 
@@ -12,7 +12,7 @@ stego info out.png
 ```
 
 ```python
-from stegolib import encode, decode, capacity
+from stegolib import encode_image, decode_image, capacity
 ```
 
 Full docs: `../README.md`, spec: `../docs/FORMAT.md`. Pillow required.

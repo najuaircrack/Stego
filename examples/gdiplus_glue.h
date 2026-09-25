@@ -1,4 +1,4 @@
-// examples/gdiplus_glue.h — optional Windows glue: PNG file <-> RGB buffer.
+// examples/gdiplus_glue.h - optional Windows glue: PNG file <-> RGB buffer.
 // Header-only; products include it (not part of lib link). Requires GDI+
 // initialized by the caller (GdiplusStartup/Shutdown around usage).
 #pragma once

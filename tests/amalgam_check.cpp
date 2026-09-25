@@ -1,4 +1,4 @@
-// amalgam_check.cpp — identity proof: same vectors through single_include.
+// amalgam_check.cpp - identity proof: same vectors through single_include.
 // Usage: amalgam_check <w> <h> <seed> <pw|-> <auth01> <payload.bin> <out.rgb>
 #define STEGO_IMPLEMENTATION
 #include "stego_all.h"

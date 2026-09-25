@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""gen_vectors.py — generate committed golden vectors (deterministic).
+"""gen_vectors.py - generate committed golden vectors (deterministic).
 
 Writes tests/vectors/<name>.{rgb,json}: fixed payloads, fixed seeds and
 passwords. Any implementation must reproduce these bytes exactly.

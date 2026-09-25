@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""embed.py — stego CLI: cover PNG + payload -> stego PNG. See docs/FORMAT.md."""
+"""embed.py - stego CLI: cover PNG + payload -> stego PNG. See docs/FORMAT.md."""
 import os
 import sys
 

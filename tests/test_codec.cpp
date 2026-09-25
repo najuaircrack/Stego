@@ -1,4 +1,4 @@
-// test_codec.cpp — CTest self-tests: NIST vectors, round-trips, tamper cases.
+// test_codec.cpp - CTest self-tests: NIST vectors, round-trips, tamper cases.
 #include "stego/stego.h"
 #include <cstdio>
 #include <cstring>
@@ -70,7 +70,7 @@ int main() {
     }
 
     // Tamper: flip header-region LSBs (pixels [0,75) always hold the
-    // header sequentially). Decode must fail or return non-matching data —
+    // header sequentially). Decode must fail or return non-matching data -
     // never silently match the original.
     {
         stego::Options o;

@@ -1,10 +1,10 @@
-# examples/ — copy-paste templates (decode first, launch explicitly)
+# examples/ - copy-paste templates (decode first, launch explicitly)
 
 ## Decode-only (no execution)
 
 | File | Language | PNG loading | Needs |
 |---|---|---|---|
-| `extract.cpp` | C++ | GDI+ glue (Windows) | `stego::stego` lib |
+| `extract.cpp` | C++ | `gdiplus_glue.h` (Windows, `StegoLoadPng`) | `stego::stego` lib |
 | `extract.c` | C (portable source) | raw RGB input (caller supplies) | amalgamated header |
 | `extract.py` | Python | Pillow | `stegolib` |
 | `extract.rs` | Rust | `image` crate | `stego` crate |

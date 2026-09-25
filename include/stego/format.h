@@ -1,4 +1,4 @@
-// format.h — wire constants (mirrors docs/FORMAT.md).
+// format.h - wire constants (mirrors docs/FORMAT.md).
 #pragma once
 #include <stdint.h>
 

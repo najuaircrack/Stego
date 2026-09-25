@@ -1,4 +1,4 @@
-// extract.cpp — template: decode a PNG file to a payload file. Windows.
+// extract.cpp - template: decode a PNG file to a payload file. Windows.
 // PNG loading via ../gdiplus_glue.h (the only platform piece; the decode
 // itself is pure stego API). Decode only. What you DO with the bytes
 // afterwards is your responsibility.

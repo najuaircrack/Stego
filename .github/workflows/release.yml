@@ -1,6 +1,6 @@
 name: release
 
-# Runs ONLY when a version tag is pushed (e.g. v2.0.0).
+# Runs ONLY when a version tag is pushed (e.g. v2.1.1).
 # Builds release artifacts and publishes the GitHub Release.
 on:
   push:
@@ -17,7 +17,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Version consistency (tag must match VERSION file)
+      - name: Version consistency (tag must match every version source)
         shell: pwsh
         run: |
           $tag = "${{ github.ref_name }}".TrimStart('v')
@@ -26,7 +26,21 @@ jobs:
             Write-Host "::error::tag v$tag != VERSION $ver"
             exit 1
           }
-          Write-Host "version ok: $ver"
+          $checks = @(
+            @('CMakeLists.txt', 'project\(stego VERSION ([\d.]+)'),
+            @('python/pyproject.toml', '^version = "([\d.]+)"'),
+            @('bindings/rust/stego/Cargo.toml', '^version = "([\d.]+)"'),
+            @('bindings/rust/stego-sys/Cargo.toml', '^version = "([\d.]+)"'),
+            @('src/api.cpp', 'return "([\d.]+)"')
+          )
+          foreach ($c in $checks) {
+            $m = Select-String -Path $c[0] -Pattern $c[1] | Select-Object -First 1
+            if (-not $m -or $m.Matches[0].Groups[1].Value -ne $ver) {
+              Write-Host "::error::version drift in $($c[0])"
+              exit 1
+            }
+          }
+          Write-Host "version ok everywhere: $ver"
 
       - name: Configure + Build (x64 static lib)
         run: >

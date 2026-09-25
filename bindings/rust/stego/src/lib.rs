@@ -28,6 +28,18 @@ impl StegoError {
     }
 }
 
+fn buf_ok(buf: &[u8], w: u32, h: u32) -> bool {
+    (w as u64) * (h as u64) * 3 <= buf.len() as u64
+}
+
+fn cstring_opt(s: Option<&str>) -> Result<Option<CString>, StegoError> {
+    match s {
+        None => Ok(None),
+        // NUL bytes cannot cross the C boundary: clean error, never panic.
+        Some(v) => CString::new(v).map(Some).map_err(|_| StegoError::Param),
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Options {
     pub scatter: bool,
@@ -44,10 +56,10 @@ pub fn encode(
     payload: &[u8],
     opt: &Options,
 ) -> Result<Vec<u8>, StegoError> {
-    if cover_rgb.len() < w as usize * h as usize * 3 {
+    if !buf_ok(cover_rgb, w, h) {
         return Err(StegoError::Param);
     }
-    let pw = opt.password.as_ref().map(|s| CString::new(s.as_str()).unwrap());
+    let pw = cstring_opt(opt.password.as_deref())?;
     let raw = stego_sys::stego_options_t {
         compress: 0,
         scatter: opt.scatter as std::os::raw::c_int,
@@ -78,10 +90,10 @@ pub fn decode(
     h: u32,
     password: Option<&str>,
 ) -> Result<Vec<u8>, StegoError> {
-    if rgb.len() < w as usize * h as usize * 3 {
+    if !buf_ok(rgb, w, h) {
         return Err(StegoError::Param);
     }
-    let pw = password.map(|s| CString::new(s).unwrap());
+    let pw = cstring_opt(password)?;
     let img = stego_sys::stego_image_t {
         w,
         h,
@@ -99,6 +111,9 @@ pub fn decode(
     };
     if rc != stego_sys::STEGO_C_OK {
         return Err(StegoError::from_code(rc));
+    }
+    if out.is_null() {
+        return Err(StegoError::Param);
     }
     let v = unsafe { std::slice::from_raw_parts(out, len).to_vec() };
     unsafe { stego_sys::stego_free(out) };

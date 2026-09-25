@@ -1,4 +1,4 @@
-// codec.cpp — header, scatter placement, LSB engine, CRC helpers.
+// codec.cpp - header, scatter placement, LSB engine, CRC helpers.
 // Splits exactly per docs/FORMAT.md. PRNG must match python/stegolib.py
 // bit-for-bit (golden vectors in tests/vectors/).
 #include "stego/format.h"
