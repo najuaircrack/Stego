@@ -26,6 +26,7 @@ jobs:
           single_include/stego_all.h build/stego_all.check.h
       - name: Python suite (goldens, malformed, boundary, cross-impl, identity)
         run: >
+          python -m pip install --upgrade Pillow pytest;
           $env:STEGO_HARNESS = "build/Release/stego_harness.exe";
           $env:STEGO_AMALGAM = "build/Release/stego_amalgam.exe";
           python -m pytest tests/ -q
@@ -50,7 +51,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: msys2/setup-msys2@v2
         with:
-          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake
+          install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-make
       - name: Configure + Build (MinGW .a path)
         shell: msys2 {0}
         run: >
