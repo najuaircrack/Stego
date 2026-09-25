@@ -1,58 +1,95 @@
 name: stego
 
+# Continuous integration: every push and PR, plus manual runs.
+# Tag pushes additionally trigger release.yml (separate file).
 on:
   push:
   pull_request:
   workflow_dispatch:
 
+# Least privilege: CI only reads the tree.
+permissions:
+  contents: read
+
+# Deterministic shell everywhere except the MSYS2 job (overridden there).
+defaults:
+  run:
+    shell: pwsh
+
+# New pushes supersede in-flight runs on the same ref.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   msvc-x64:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Configure (tests + examples on for CI)
+        with:
+          fetch-depth: 1
+
+      - name: Configure (tests + examples)
         run: >
           cmake -S . -B build
           -G "Visual Studio 18 2026" -A x64
           -DSTEGO_BUILD_TESTS=ON -DSTEGO_BUILD_EXAMPLES=ON
+
       - name: Build
         run: cmake --build build --config Release
+
       - name: CTest (codec matrix incl. malformed/v1-compat)
         run: ctest --test-dir build -C Release --output-on-failure
+
       - name: Amalgamation drift check (generated file must match)
         run: >
           python amalgamate.py build/stego_all.check.h &&
           git diff --no-index --quiet
           single_include/stego_all.h build/stego_all.check.h
+
+      - name: Python dependencies
+        run: python -m pip install --upgrade Pillow pytest
+
       - name: Python suite (goldens, malformed, boundary, cross-impl, identity)
-        run: >
-          python -m pip install --upgrade Pillow pytest;
-          $env:STEGO_HARNESS = "build/Release/stego_harness.exe";
-          $env:STEGO_AMALGAM = "build/Release/stego_amalgam.exe";
-          python -m pytest tests/ -q
+        env:
+          STEGO_HARNESS: build/Release/stego_harness.exe
+          STEGO_AMALGAM: build/Release/stego_amalgam.exe
+        run: python -m pytest tests/ -q
 
   msvc-x86:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Configure (x86)
+        with:
+          fetch-depth: 1
+
+      - name: Configure (x86, tests + examples)
         run: >
           cmake -S . -B build32
           -G "Visual Studio 18 2026" -A Win32
-          -DSTEGO_BUILD_TESTS=ON
+          -DSTEGO_BUILD_TESTS=ON -DSTEGO_BUILD_EXAMPLES=ON
+
       - name: Build
         run: cmake --build build32 --config Release
+
       - name: CTest
         run: ctest --test-dir build32 -C Release --output-on-failure
 
   gcc-mingw:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
       - uses: msys2/setup-msys2@v2
         with:
           install: mingw-w64-x86_64-gcc mingw-w64-x86_64-cmake mingw-w64-x86_64-make
-      - name: Configure + Build (MinGW .a path)
+
+      - name: Configure + Build + Test (MinGW .a path)
         shell: msys2 {0}
         run: >
           cmake -S . -B build-mingw
@@ -63,9 +100,13 @@ jobs:
 
   linux-gcc:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - name: Configure + Build (GCC, lib + tests; GDI+ examples skipped)
+        with:
+          fetch-depth: 1
+
+      - name: Configure + Build + Test (GCC, lib + tests; GDI+ examples skip)
         run: >
           cmake -S . -B build-linux
           -DSTEGO_BUILD_TESTS=ON &&
@@ -74,19 +115,38 @@ jobs:
 
   python:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install Pillow pytest
-      - run: pytest tests/ -q -k "not cross"
+
+      - name: Python dependencies
+        run: pip install Pillow pytest
+
+      # Cross-impl tests need built C++ binaries (covered in msvc jobs);
+      # here we run everything else.
+      - name: Python suite (no cross-impl)
+        run: pytest tests/ -q -k "not cross"
 
   rust:
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: stable
-      - run: cargo test --manifest-path bindings/rust/stego/Cargo.toml
+          fetch-depth: 1
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      # Wrapper crate first (exercises the FFI build + safe API)...
+      - name: Test safe wrapper
+        run: cargo test --manifest-path bindings/rust/stego/Cargo.toml
+
+      # ...then the raw bindings crate alone (proves it stands by itself).
+      - name: Test raw FFI bindings
+        run: cargo test --manifest-path bindings/rust/stego-sys/Cargo.toml

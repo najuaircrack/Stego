@@ -1,39 +1,49 @@
 name: release
 
-# Runs ONLY when a version tag is pushed (e.g. v2.1.1).
-# Builds release artifacts and publishes the GitHub Release.
+# Publishes the GitHub Release (binaries + notes) when a version tag
+# is pushed (e.g. v2.1.1). Trigger on tags ONLY — never on branches.
 on:
   push:
     tags:
       - 'v*'
 
+# Releases need write access. Nothing else in this file does.
 permissions:
-  contents: write   # required to create releases + upload artifacts
+  contents: write
+
+# Tag pushes are rare and must never cancel each other mid-publish.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+# Deterministic shell everywhere (pwsh): && / ||, $env:, 2>$null.
+defaults:
+  run:
+    shell: pwsh
 
 jobs:
   release:
-    if: startsWith(github.ref, 'refs/tags/')
     runs-on: windows-latest
-    defaults:
-      run:
-        # Tag-triggered runs must not depend on ambient CWD: pin everything
-        # to the checked-out tree (this exact failure bit us on v2.1.1).
-        working-directory: ${{ github.workspace }}
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
 
+      - name: Set up Python (deterministic builds + tooling)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
       - name: Version consistency (tag must match every version source)
         shell: pwsh
+        working-directory: ${{ github.workspace }}
         run: |
-          $root = $env:GITHUB_WORKSPACE
-          if (-not $root) { $root = (Get-Location).Path }
-          $verFile = Join-Path $root 'VERSION'
+          $verFile = Join-Path $env:GITHUB_WORKSPACE 'VERSION'
           if (-not (Test-Path $verFile)) {
-            Write-Host "::error::VERSION not found at $verFile; workspace contains:"
-            Get-ChildItem $root | Select-Object Name | Out-String | Write-Host
+            Write-Host "::error::VERSION not found; workspace contains:"
+            Get-ChildItem $env:GITHUB_WORKSPACE | Select-Object Name
             exit 1
           }
           $tag = "${{ github.ref_name }}".TrimStart('v')
@@ -75,20 +85,50 @@ jobs:
           python -m pip install --upgrade build &&
           python -m build python --outdir python/dist
 
-      - name: Stage artifacts
+      - name: Stage artifacts (fail loudly if anything is missing)
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Path release-artifacts -Force | Out-Null
-          Copy-Item single_include/stego_all.h release-artifacts/
-          Copy-Item build/Release/stego.lib release-artifacts/
-          Copy-Item python/dist/* release-artifacts/
-          Get-ChildItem release-artifacts | Format-Table Name, Length -AutoSize
+          $dst = Join-Path $env:GITHUB_WORKSPACE 'release-artifacts'
+          New-Item -ItemType Directory -Path $dst -Force | Out-Null
+          $wanted = @(
+            'single_include/stego_all.h',
+            'build/Release/stego.lib',
+            'python/dist/stego_tool-*.tar.gz',
+            'python/dist/stego_tool-*.whl'
+          )
+          foreach ($pattern in $wanted) {
+            $found = @(Get-ChildItem (Join-Path $env:GITHUB_WORKSPACE $pattern) -ErrorAction SilentlyContinue)
+            if ($found.Count -eq 0) {
+              Write-Host "::error::missing artifact for pattern: $pattern"
+              exit 1
+            }
+            Copy-Item $found.FullName $dst -Force
+          }
+          Get-ChildItem $dst | Format-Table Name, Length -AutoSize
 
-      - name: Publish GitHub Release
+      - name: Extract release notes (this version's CHANGELOG section)
+        shell: pwsh
+        run: |
+          $ver = (Get-Content (Join-Path $env:GITHUB_WORKSPACE 'VERSION') -Raw).Trim()
+          $log = Get-Content (Join-Path $env:GITHUB_WORKSPACE 'CHANGELOG.md') -Raw
+          $m = [regex]::Match($log, "(?ms)^## \[$ver\].*?(?=^## \[|\z)")
+          if (-not $m.Success) {
+            Write-Host "::error::no CHANGELOG section for [$ver]"
+            exit 1
+          }
+          $m.Value.Trim() | Out-File (Join-Path $env:GITHUB_WORKSPACE 'release-notes.md') -Encoding UTF8
+          Write-Host "notes extracted for $ver"
+
+      - name: Publish GitHub Release (idempotent — updates if re-run)
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: >
-          gh release create "${{ github.ref_name }}"
-          --title "${{ github.ref_name }}"
-          --notes-file CHANGELOG.md
-          release-artifacts/*
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $files = Get-ChildItem release-artifacts/* | ForEach-Object { $_.FullName }
+          if (-not $files) { Write-Host "::error::no staged artifacts"; exit 1 }
+          & gh release view $tag --json tagName -q .tagName 2>$null
+          if ($?) {
+            & gh release upload $tag $files --clobber
+          } else {
+            & gh release create $tag --title $tag --notes-file release-notes.md $files
+          }
