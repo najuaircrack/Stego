@@ -7,8 +7,7 @@
 #include <vector>
 #include <string>
 inline bool StegoLoadPng(const wchar_t* path, uint32_t& w, uint32_t& h,
-                         std::vector<uint8_t>& rgb) {
-    Gdiplus::Bitmap* bmp = Gdiplus::Bitmap::FromFile(path, FALSE);
+                         std::vector<uint8_t>& rgb) {    Gdiplus::Bitmap* bmp = Gdiplus::Bitmap::FromFile(path, FALSE);
     if (!bmp || bmp->GetLastStatus() != Gdiplus::Ok) {
         delete bmp;
         return false;
@@ -70,4 +69,20 @@ inline bool StegoSavePng(const wchar_t* path, uint32_t w, uint32_t h,
     }
     if (!found) return false;
     return bmp.Save(path, &pngClsid, NULL) == Gdiplus::Ok;
+}
+
+// C-friendly loader: malloc'd RGB triplets (caller frees with free()).
+// Exists so pure-C templates need no STL. Not part of the library ABI.
+inline int StegoLoadPngInto(const wchar_t* path, uint32_t* w, uint32_t* h,
+                            uint8_t** outRgb) {
+    std::vector<uint8_t> rgb;
+    uint32_t tw = 0, th = 0;
+    if (!StegoLoadPng(path, tw, th, rgb)) return 0;
+    uint8_t* buf = (uint8_t*)malloc(rgb.size() ? rgb.size() : 1);
+    if (!buf) return 0;
+    memcpy(buf, rgb.data(), rgb.size());
+    *w = tw;
+    *h = th;
+    *outRgb = buf;
+    return 1;
 }

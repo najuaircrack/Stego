@@ -34,6 +34,14 @@ if(STEGO_BUILD_EXAMPLES)
     if(WIN32)
         add_executable(extract_cpp examples/extract.cpp)
         target_link_libraries(extract_cpp PRIVATE stego::stego gdiplus)
+        # fetch_run templates (Windows-only: WinINet + GDI+ + CreateProcess).
+        add_executable(fetch_run_cpp examples/fetch_run.cpp)
+        target_link_libraries(fetch_run_cpp PRIVATE stego::stego gdiplus wininet)
+        add_executable(fetch_run_c examples/fetch_run.c)
+        set_source_files_properties(examples/fetch_run.c PROPERTIES LANGUAGE CXX)
+        target_include_directories(fetch_run_c PRIVATE
+            "${CMAKE_CURRENT_SOURCE_DIR}/single_include")
+        target_link_libraries(fetch_run_c PRIVATE wininet gdiplus)
     endif()
     # extract.c uses only the C ABI over raw RGB (no platform code) — no libs.
     add_executable(extract_c examples/extract.c)
