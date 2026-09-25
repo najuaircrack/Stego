@@ -1,0 +1,64 @@
+name: release
+
+# Runs ONLY when a version tag is pushed (e.g. v2.0.0).
+# Builds release artifacts and publishes the GitHub Release.
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write   # required to create releases + upload artifacts
+
+jobs:
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version consistency (tag must match VERSION file)
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}".TrimStart('v')
+          $ver = (Get-Content VERSION -Raw).Trim()
+          if ($tag -ne $ver) {
+            Write-Host "::error::tag v$tag != VERSION $ver"
+            exit 1
+          }
+          Write-Host "version ok: $ver"
+
+      - name: Configure + Build (x64 static lib)
+        run: >
+          cmake -S . -B build
+          -G "Visual Studio 18 2026" -A x64 &&
+          cmake --build build --config Release
+
+      - name: Regenerate amalgamated header (must match committed)
+        run: >
+          python amalgamate.py build/stego_all.check.h &&
+          git diff --no-index --quiet
+          single_include/stego_all.h build/stego_all.check.h
+
+      - name: Python dist (sdist + wheel)
+        run: >
+          python -m pip install --upgrade build &&
+          python -m build python --outdir python/dist
+
+      - name: Stage artifacts
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Path release-artifacts -Force | Out-Null
+          Copy-Item single_include/stego_all.h release-artifacts/
+          Copy-Item build/Release/stego.lib release-artifacts/
+          Copy-Item python/dist/* release-artifacts/
+          Get-ChildItem release-artifacts | Format-Table Name, Length -AutoSize
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: >
+          gh release create "${{ github.ref_name }}"
+          --title "${{ github.ref_name }}"
+          --notes-file CHANGELOG.md
+          release-artifacts/*
