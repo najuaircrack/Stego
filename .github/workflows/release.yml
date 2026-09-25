@@ -14,14 +14,30 @@ jobs:
   release:
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: windows-latest
+    defaults:
+      run:
+        # Tag-triggered runs must not depend on ambient CWD: pin everything
+        # to the checked-out tree (this exact failure bit us on v2.1.1).
+        working-directory: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
 
       - name: Version consistency (tag must match every version source)
         shell: pwsh
         run: |
+          $root = $env:GITHUB_WORKSPACE
+          if (-not $root) { $root = (Get-Location).Path }
+          $verFile = Join-Path $root 'VERSION'
+          if (-not (Test-Path $verFile)) {
+            Write-Host "::error::VERSION not found at $verFile; workspace contains:"
+            Get-ChildItem $root | Select-Object Name | Out-String | Write-Host
+            exit 1
+          }
           $tag = "${{ github.ref_name }}".TrimStart('v')
-          $ver = (Get-Content VERSION -Raw).Trim()
+          $ver = (Get-Content $verFile -Raw).Trim()
           if ($tag -ne $ver) {
             Write-Host "::error::tag v$tag != VERSION $ver"
             exit 1
