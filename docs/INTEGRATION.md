@@ -3,7 +3,7 @@
 ## CMake (recommended)
 
 ```cmake
-add_subdirectory(tools/stego)          # provides stego::stego
+add_subdirectory(<path-to-stego>)          # provides stego::stego
 target_link_libraries(myproduct PRIVATE stego::stego)
 ```
 

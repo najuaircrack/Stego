@@ -1,4 +1,4 @@
-# tools/stego — v2 stego library (static, add_subdirectory-able).
+# stego — v2 stego library (static, add_subdirectory-able).
 cmake_minimum_required(VERSION 3.20)
 
 add_library(stego STATIC

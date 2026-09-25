@@ -3,7 +3,7 @@
 ## Legacy layouts (read-only forever)
 
 - **v1:** `[u32 LE size][payload]`, sequential LSBs from pixel 0, R,G,B order.
-  Produced by the original `tools/stego/embed.py`.
+  Produced by the original v1 `embed.py` (since replaced by `python/embed.py`).
 - **v2:** 28-byte header (magic/version/flags/seed/sizes/reserved/header-CRC),
   body, data CRC, optional HMAC; raw-password CTR + domain-separated auth key.
   Produced by early 2.0.0 builds. Superseded, never fielded at scale.
