@@ -86,15 +86,18 @@ def main():
                                           for i, c in enumerate(hist)))
 
     # --- cost_buckets.png ---
-    img = Image.new('RGB', (W, H + 46), (16, 18, 24))
+    img = Image.new('RGB', (W, H + 64), (16, 18, 24))
     mp = img.load()
     for y in range(H):
         for x in range(W):
             mp[x, y] = PALETTE[buckets[y * W + x]]
-    for b in range(COSTQ):  # legend chips
-        for y in range(H + 8, H + 28):
+    dr = ImageDraw.Draw(img)
+    for b in range(COSTQ):  # legend chips + white bucket/count labels
+        for y in range(H + 6, H + 22):
             for x in range(14 + b * 60, 14 + b * 60 + 44):
                 mp[x, y] = PALETTE[b]
+        _white(dr, 14 + b * 60, H + 25, 'b%d' % b)
+        _white(dr, 14 + b * 60, H + 38, '%d px' % hist[b])
     img.save(os.path.join(HERE, 'cost_buckets.png'))
 
     # --- selection_overlay.png ---
@@ -115,6 +118,9 @@ def main():
                             px[3 * i + 2] // 3)
     canvas = Image.new('RGB', (W, H + 30), (16, 18, 24))
     canvas.paste(base, (0, 0))
+    _white(ImageDraw.Draw(canvas), 12, H + 8,
+           'red = pixels used by a %d KiB payload (seed %d, Q%d, %.1f%% of cover)'
+           % (SAMPLE_PAYLOAD // 1024, ORDER_SEED, COSTQ, 100.0 * need_px / npx))
     canvas.save(os.path.join(HERE, 'selection_overlay.png'))
     print('cover=%dx%d Q=%d seed=%d payload=%d KiB -> %d px used (%.1f%%)' %
           (W, H, COSTQ, ORDER_SEED, SAMPLE_PAYLOAD // 1024, need_px,
