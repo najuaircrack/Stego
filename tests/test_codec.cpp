@@ -24,11 +24,27 @@ static std::string Payload() {
     return p;
 }
 
-static void RoundTrip(stego::Options o, const std::string& tag) {
-    stego::Image c = Cover();
+static void RoundTrip(stego::Options o, const std::string& tag) {    stego::Image c = Cover();
     std::string p = Payload();
     stego::Image e;
     bool ok = stego::Encode(c, (const uint8_t*)p.data(), p.size(), o, e);
+    if (!ok) { printf("FAIL %s: encode rejected\n", tag.c_str()); g_fail++; return; }
+    std::vector<uint8_t> d;
+    ok = stego::Decode(e, o.password, d);
+    if (!ok) { printf("FAIL %s: decode rejected\n", tag.c_str()); g_fail++; return; }
+    if (d.size() != p.size() || memcmp(d.data(), p.data(), p.size()) != 0) {
+        printf("FAIL %s: payload mismatch\n", tag.c_str());
+        g_fail++;
+    } else {
+        printf("ok %s\n", tag.c_str());
+    }
+}
+
+static void RoundTripV4(stego::OptionsV4 o, const std::string& tag) {
+    stego::Image c = Cover();
+    std::string p = Payload();
+    stego::Image e;
+    bool ok = stego::EncodeV4(c, (const uint8_t*)p.data(), p.size(), o, e);
     if (!ok) { printf("FAIL %s: encode rejected\n", tag.c_str()); g_fail++; return; }
     std::vector<uint8_t> d;
     ok = stego::Decode(e, o.password, d);
@@ -69,6 +85,45 @@ int main() {
         RoundTrip(o, "scatter+encrypt+auth");
     }
 
+    // v4 flag matrix (password always required).
+    {
+        stego::OptionsV4 o;
+        o.password = "correct horse battery staple";
+        o.seed = 7;
+        RoundTripV4(o, "v4-adaptive");
+    }
+    {
+        stego::OptionsV4 o;
+        o.password = "pw";
+        o.adaptive = false;
+        o.seed = 0;
+        RoundTripV4(o, "v4-nonadaptive-sequential");
+    }
+    {
+        stego::OptionsV4 o;
+        o.password = "pw";
+        o.seed = 9;
+        o.robust = true;
+        RoundTripV4(o, "v4-adaptive-robust");
+    }
+    {
+        stego::OptionsV4 o;
+        o.password = "pw";
+        o.seed = 11;
+        o.costq = 4;
+        RoundTripV4(o, "v4-costq4");
+    }
+    {
+        // v4 requires a password: empty must refuse, never write v3.
+        stego::OptionsV4 o;
+        o.seed = 7;
+        stego::Image c = Cover();
+        std::string p = Payload();
+        stego::Image e;
+        CHECK(!stego::EncodeV4(c, (const uint8_t*)p.data(), p.size(), o, e));
+        printf("ok v4-empty-password-refusal\n");
+    }
+
     // Tamper: flip header-region LSBs (pixels [0,75) always hold the
     // header sequentially). Decode must fail or return non-matching data -
     // never silently match the original.
@@ -89,6 +144,37 @@ int main() {
             CHECK(d.size() != p.size() || memcmp(d.data(), p.data(), p.size()) != 0);
         }
         printf("ok tamper-reject-or-detect\n");
+    }
+
+    // v4 tamper: flip header R/B slots (pixels [0,256) hold the 64B
+    // header). AEAD must fail closed — never silently match.
+    {
+        stego::OptionsV4 o;
+        o.password = "pw";
+        o.seed = 13;
+        stego::Image c = Cover();
+        std::string p = Payload();
+        stego::Image e;
+        CHECK(stego::EncodeV4(c, (const uint8_t*)p.data(), p.size(), o, e));
+        e.rgb[10] ^= 1;
+        e.rgb[600] ^= 1;
+        std::vector<uint8_t> d;
+        CHECK(!stego::Decode(e, o.password, d));
+        printf("ok v4-tamper-reject\n");
+    }
+
+    // v4 wrong password must fail.
+    {
+        stego::OptionsV4 o;
+        o.password = "right";
+        o.seed = 17;
+        stego::Image c = Cover();
+        std::string p = Payload();
+        stego::Image e;
+        CHECK(stego::EncodeV4(c, (const uint8_t*)p.data(), p.size(), o, e));
+        std::vector<uint8_t> d;
+        CHECK(!stego::Decode(e, "wrong", d));
+        printf("ok v4-wrong-password\n");
     }
 
     // Wrong password must fail.
@@ -113,6 +199,18 @@ int main() {
         stego::Image e;
         CHECK(!stego::Encode(c, (const uint8_t*)p.data(), p.size(), o, e));
         printf("ok capacity-refusal\n");
+    }
+
+    // v4 capacity refusal (16x16 leaves no body pixels past the header).
+    {
+        stego::OptionsV4 o;
+        o.password = "pw";
+        o.seed = 7;
+        stego::Image c = Cover(16, 16);
+        std::string p(5000, 'x');
+        stego::Image e;
+        CHECK(!stego::EncodeV4(c, (const uint8_t*)p.data(), p.size(), o, e));
+        printf("ok v4-capacity-refusal\n");
     }
 
     if (g_fail == 0) printf("ALL PASS\n");

@@ -41,4 +41,4 @@ the `security` label including a minimal reproducer (image +
 expected/actual), or email the maintainers listed under
 `github.com/najuaircrack/Stego`. Please allow 90 days before public
 disclosure. Supported range: the latest two minor releases (currently
-2.1.x); older lines receive no fixes.
+4.0.x); older lines receive no fixes.

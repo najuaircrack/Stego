@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="560" viewBox="0 0 960 560" font-family="ui-monospace, Consolas, monospace">
+  <style>
+    .t { font-size: 20px; font-weight: bold; fill: #1a2233; }
+    .s { font-size: 14px; font-weight: bold; fill: #1a2233; }
+    .b { font-size: 12px; fill: #1a2233; }
+    .w { font-size: 12px; fill: #ffffff; }
+    .n { font-size: 11px; fill: #6b7690; }
+    .box { rx: 8; }
+  </style>
+  <text x="24" y="34" class="t">v4 data flow (FORMAT.md §2)</text>
+
+  <!-- ENCODE column -->
+  <text x="24" y="66" class="s">encode</text>
+  <g>
+    <rect x="24" y="78" width="420" height="52" class="box" fill="#eef2f7" stroke="#3a4763"/>
+    <text x="40" y="100" class="b">payload → data_crc32 ‖ payload (plaintext P)</text>
+    <text x="40" y="118" class="n">belt-and-braces CRC inside the AEAD plaintext</text>
+    <rect x="24" y="142" width="420" height="52" class="box" fill="#eef2f7" stroke="#3a4763"/>
+    <text x="40" y="164" class="b">PBKDF2 210k → key[32] ‖ nonce[12]  (fresh salt)</text>
+    <text x="40" y="182" class="n">unique (key, nonce) per message, even on password reuse</text>
+    <rect x="24" y="206" width="420" height="52" class="box" fill="#dff0e2" stroke="#2e7d46"/>
+    <text x="40" y="228" class="b">ChaCha20-Poly1305(key, nonce, AAD=header, P)</text>
+    <text x="40" y="246" class="n">ciphertext C = P + 16-byte tag; header fully authenticated</text>
+    <rect x="24" y="270" width="420" height="52" class="box" fill="#eef2f7" stroke="#3a4763"/>
+    <text x="40" y="292" class="b">cost buckets (texture-first) + keyed shuffle</text>
+    <text x="40" y="310" class="n">dry pixels only · smooth regions untouched · verify-and-retry</text>
+    <rect x="24" y="334" width="420" height="52" class="box" fill="#eef2f7" stroke="#3a4763"/>
+    <text x="40" y="356" class="b">ternary ±1 embed (header sequential, body ordered)</text>
+    <text x="40" y="374" class="n">symmetric LSB matching · saturation-safe at 0/255</text>
+    <rect x="24" y="398" width="420" height="52" class="box" fill="#3f7fbf" stroke="#2c5f96"/>
+    <text x="40" y="420" class="w">stego PNG (carrier pixels, RGB)</text>
+    <text x="40" y="438" class="w" opacity="0.85">PNG only — LSB layout undefined for lossy formats</text>
+  </g>
+  <!-- arrows encode -->
+  <g stroke="#3a4763" stroke-width="2" marker-end="none">
+    <line x1="234" y1="130" x2="234" y2="140"/><line x1="234" y1="194" x2="234" y2="204"/>
+    <line x1="234" y1="258" x2="234" y2="268"/><line x1="234" y1="322" x2="234" y2="332"/>
+    <line x1="234" y1="386" x2="234" y2="396"/>
+  </g>
+
+  <!-- DECODE column -->
+  <text x="516" y="66" class="s">decode (fail-closed, one indistinguishable error)</text>
+  <g>
+    <rect x="516" y="78" width="420" height="52" class="box" fill="#eef2f7" stroke="#3a4763"/>
+    <text x="532" y="100" class="b">read 64B header (sequential) → magic / ver / CRC</text>
+    <text x="532" y="118" class="n">wrong magic, version, or CRC → reject immediately</text>
+    <rect x="516" y="142" width="420" height="52" class="box" fill="#eef2f7" stroke="#3a4763"/>
+    <text x="532" y="164" class="b">reproduce candidate order from STEGO pixels</text>
+    <text x="532" y="182" class="n">same bucket rule on stego · seed + costq from header</text>
+    <rect x="516" y="206" width="420" height="52" class="box" fill="#eef2f7" stroke="#3a4763"/>
+    <text x="532" y="228" class="b">read LSBs (majority vote if ROBUST) → C bits</text>
+    <text x="532" y="246" class="n">order mismatch anywhere → AEAD fails closed below</text>
+    <rect x="516" y="270" width="420" height="52" class="box" fill="#fbe3e3" stroke="#b33737"/>
+    <text x="532" y="292" class="b">AEAD-open(key, nonce, AAD=header, C) → P?</text>
+    <text x="532" y="310" class="n">tag failure, tampering, wrong password: all the same reject</text>
+    <rect x="516" y="334" width="420" height="52" class="box" fill="#eef2f7" stroke="#3a4763"/>
+    <text x="532" y="356" class="b">split data_crc32 ‖ payload · verify both CRCs + sizes</text>
+    <text x="532" y="374" class="n">comp == orig + 20 exactly · orig ≥ 1 · capacity bounds</text>
+    <rect x="516" y="398" width="420" height="52" class="box" fill="#3aa655" stroke="#247a3d"/>
+    <text x="532" y="420" class="w">payload bytes (still untrusted — never execute blindly)</text>
+    <text x="532" y="438" class="w" opacity="0.85">library decodes; execution is the operator's decision</text>
+  </g>
+  <g stroke="#3a4763" stroke-width="2">
+    <line x1="726" y1="130" x2="726" y2="140"/><line x1="726" y1="194" x2="726" y2="204"/>
+    <line x1="726" y1="258" x2="726" y2="268"/><line x1="726" y1="322" x2="726" y2="332"/>
+    <line x1="726" y1="386" x2="726" y2="396"/>
+  </g>
+
+  <text x="24" y="492" class="s">placement detail (ADAPTIVE) — provably stable, no retries</text>
+  <text x="24" y="514" class="n">cost = 3×3 variance of GREEN (integer) → Q buckets, texture-first → embed R/B only → green bit-exact →</text>
+  <text x="24" y="532" class="n">decode-side costs equal encode-side costs exactly: bucket flips impossible, order reproduces bit-exact</text>
+</svg>

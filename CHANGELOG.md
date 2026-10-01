@@ -3,6 +3,33 @@
 All notable changes to the stego library. Format: Keep a Changelog.
 Versions: semantic (`VERSION` file is authoritative).
 
+## [4.0.0]
+
+### Added (v4 envelope; v3 frozen, decoders accept both)
+- `docs/FORMAT.md`: single normative spec now covers v3 (frozen §1) and
+  v4 (§2: ChaCha20-Poly1305 AEAD with full-header AAD, PBKDF2 210k,
+  green-invariant adaptive ±1 placement, optional repetition-3 robustness).
+- `python/stegolib.py`: v4 codec in-module (`encode_image_v4`,
+  `decode_image_v4`, `decode_auto`); v3 paths byte-identical.
+- `python/bench_steganalysis.py`: classical-detector benchmark
+  (chi-square/RS/pair-difference/LSB-smoothness + logistic linear probe,
+  sanity-gated, matched-bpp v3-vs-v4) emitting `docs/figures/bench_*.svg`
+  and `bench_v4.json`.
+- `docs/ANALYSIS.md`: component arguments + measured results (RS blind
+  on v4adapt at both bpps; smooth blind via placement; chi-square/SPA
+  still see all at operational bpp) + explicit non-claims.
+- `docs/figures/`: generated cost-bucket/selection visuals
+  (`gen_figures.py`, deterministic) + hand-authored envelope/pipeline
+  SVG schematics.
+- C++ port: `src/aead.cpp` (vendored ChaCha20-Poly1305, RFC 8439),
+  adaptive codec in `src/codec.cpp` (green-invariant costs, R/B slots),
+  `EncodeV4`/`CapacityV4`/`OptionsV4` + version-dispatching `Decode`
+  (signatures unchanged — no ABI bump), additive `stego_options_v4_t` /
+  `stego_encode_v4` C ABI, `enc4` harness mode, v4 golden vectors +
+  cross-implementation pytest battery, refreshed `single_include`.
+- Operator CLIs (`embed.py`, `extract.py`, `stego_cli.py`): `--v4` mode;
+  `extract`/`reveal` auto-dispatch v3/v4.
+
 ## [3.0.0]
 
 ### Removed (breaking)

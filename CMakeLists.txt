@@ -1,10 +1,11 @@
 # stego - portable steganography library (static, add_subdirectory-able).
 cmake_minimum_required(VERSION 3.20)
-project(stego VERSION 3.0.0 LANGUAGES C CXX)
+project(stego VERSION 4.0.0 LANGUAGES C CXX)
 
 add_library(stego STATIC
     src/sha256.cpp
     src/codec.cpp
+    src/aead.cpp
     src/api.cpp
 )
 

@@ -35,7 +35,7 @@ for name in ['format.h', 'stego.h', 'stego_c.h']:
     parts.append(f'// ---- {name} ----\n' + body)
 
 parts.append('#ifdef STEGO_IMPLEMENTATION')
-for name in ['sha256.cpp', 'codec.cpp', 'api.cpp']:
+for name in ['sha256.cpp', 'codec.cpp', 'aead.cpp', 'api.cpp']:
     body = read(os.path.join(ROOT, 'src', name))
     body = '\n'.join(l for l in body.splitlines()
                      if '#include "stego/' not in l

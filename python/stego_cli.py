@@ -5,7 +5,8 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
-from stegolib import decode_image, encode_image
+from stegolib import (decode_auto, decode_image, encode_image,
+                      encode_image_v4)
 from PIL import Image
 
 
@@ -23,20 +24,30 @@ def cmd_hide(a):
     if not payload:
         print('ERROR: empty payload refused')
         return 1
-    out = encode_image(flat(img), w, h, payload, seed=a.seed,
-                       password=a.password or '', do_auth=a.auth,
-                       scatter=a.scatter or a.seed != 0)
+    if a.v4:
+        if not a.password:
+            print('ERROR: v4 requires --password')
+            return 1
+        out = encode_image_v4(flat(img), w, h, payload, a.password,
+                              seed=a.seed, adaptive=a.adaptive,
+                              robust=a.robust, costq=a.costq)
+        env = 'v4'
+    else:
+        out = encode_image(flat(img), w, h, payload, seed=a.seed,
+                           password=a.password or '', do_auth=a.auth,
+                           scatter=a.scatter or a.seed != 0)
+        env = 'v3'
     res = Image.new('RGB', (w, h))
     res.putdata([tuple(out[i:i + 3]) for i in range(0, len(out), 3)])
     res.save(a.output, 'PNG')
-    print(f'[+] {len(payload)} bytes -> {a.output}')
+    print(f'[+] {len(payload)} bytes -> {a.output} ({env})')
     return 0
 
 
 def cmd_reveal(a):
     img = Image.open(a.image).convert('RGB')
     w, h = img.size
-    payload = decode_image(flat(img), w, h, password=a.password or '')
+    payload = decode_auto(flat(img), w, h, password=a.password or '')
     if payload is None:
         print('ERROR: decode failed (format/CRC/auth)')
         return 1
@@ -48,8 +59,10 @@ def cmd_reveal(a):
 
 
 def cmd_info(a):
-    from stegolib import (MAGIC, FORMAT_VERSION, F_COMPRESS, F_SCATTER,
-                          F_ENCRYPT, F_AUTH, read_bits, placement)
+    from stegolib import (MAGIC, FORMAT_VERSION, FORMAT_V4, F_COMPRESS,
+                          F_SCATTER, F_ENCRYPT, F_AUTH, F_ADAPTIVE, F_ROBUST,
+                          read_bits, placement, v4_read_bits,
+                          V4_HEADER_LEN)
     import struct
     img = Image.open(a.image).convert('RGB')
     w, h = img.size
@@ -57,12 +70,30 @@ def cmd_info(a):
     seq = placement(npx, 0)
     hdr = read_bits(flat(img), w, h, seq, 0, 44)
     print(f'dimensions: {w}x{h} ({npx} px, ~{npx * 3 // 8} payload bytes max)')
-    if hdr[:4] != MAGIC:
+    ver, flags = None, None
+    if hdr[:4] == MAGIC:
+        # v3 header (44B over the 3-channel sequential map)
+        ver, flags = struct.unpack('<H', hdr[4:6])[0], struct.unpack('<H', hdr[6:8])[0]
+    if ver is None and npx > 256:
+        # v4 header lives in R/B slots: re-read the 64B header properly
+        hdr = bytes(v4_read_bits(flat(img), w, list(range(256)),
+                                 V4_HEADER_LEN * 8, False))
+        if hdr[:4] == MAGIC:
+            ver, flags = struct.unpack('<H', hdr[4:6])[0], struct.unpack('<H', hdr[6:8])[0]
+    if ver is None:
         print('format: unrecognized (not a stego image)')
         return 0
-    ver, flags = struct.unpack('<H', hdr[4:6])[0], struct.unpack('<H', hdr[6:8])[0]
+    if ver == FORMAT_V4:
+        seed, orig, comp, costq = struct.unpack('<IIII', hdr[8:24])
+        print(f'format: stego envelope v4')
+        print(f'flags: adaptive={bool(flags & F_ADAPTIVE)} '
+              f'robust={bool(flags & F_ROBUST)} '
+              f'scatter={bool(flags & F_SCATTER)}')
+        print(f'seed: {seed}  costq: {costq}')
+        print(f'payload size: {orig} bytes (stored {comp})')
+        return 0
     if ver != FORMAT_VERSION:
-        print(f'format: unsupported version v{ver} (this tool reads v{FORMAT_VERSION} only)')
+        print(f'format: unsupported version v{ver} (this tool reads v3+v4 only)')
         return 0
     seed, orig, comp = struct.unpack('<III', hdr[8:20])
     print(f'format: stego envelope v{ver}')
@@ -84,6 +115,13 @@ def main(argv=None):
     h.add_argument('--scatter', action='store_true')
     h.add_argument('--password', default='')
     h.add_argument('--auth', action='store_true')
+    h.add_argument('--v4', action='store_true',
+                   help='v4 envelope (AEAD + adaptive ternary, needs --password)')
+    h.add_argument('--adaptive', dest='adaptive', action='store_true',
+                   default=True)
+    h.add_argument('--no-adaptive', dest='adaptive', action='store_false')
+    h.add_argument('--robust', action='store_true')
+    h.add_argument('--costq', type=int, default=8)
     h.set_defaults(fn=cmd_hide)
     r = sub.add_parser('reveal')
     r.add_argument('image')

@@ -27,9 +27,33 @@ void PutBit(std::vector<uint8_t>& rgb, uint32_t w,
             const std::vector<uint32_t>& place, size_t k, int bit);
 int GetBit(const std::vector<uint8_t>& rgb, uint32_t w,
            const std::vector<uint32_t>& place, size_t k);
+// v4 adaptive placement (FORMAT.md §2.4): green costs, R/B slots.
+void CostMapGreen(const std::vector<uint8_t>& rgb, uint32_t w, uint32_t h,
+                  std::vector<uint32_t>& cost);
+uint32_t CostBucket(uint32_t cost, uint32_t q);
+std::vector<uint32_t> CandidateOrderV4(const std::vector<uint8_t>& rgb,
+                                       uint32_t w, uint32_t h, uint32_t seed,
+                                       uint32_t q, bool adaptive);
+bool EmbedV4(std::vector<uint8_t>& rgb, const std::vector<uint32_t>& order,
+             const uint8_t* src, size_t srcLen, bool robust, uint64_t seed64,
+             size_t slotBase);
+bool ReadV4(const std::vector<uint8_t>& rgb, const std::vector<uint32_t>& order,
+            size_t nBytes, bool robust, std::vector<uint8_t>& out);
 }  // namespace codec
+namespace aead {
+void ChaChaBlock(const uint8_t key[32], const uint8_t nonce[12],
+                 uint32_t counter, uint8_t out[64]);
+void Poly1305(const uint8_t key[32], const uint8_t* msg, size_t len,
+              uint8_t tag[16]);
+void AeadEncrypt(const uint8_t key[32], const uint8_t nonce[12],
+                 const uint8_t* aad, size_t aadLen, const uint8_t* pt,
+                 size_t ptLen, uint8_t* ct, uint8_t tag[16]);
+bool AeadDecrypt(const uint8_t key[32], const uint8_t nonce[12],
+                 const uint8_t* aad, size_t aadLen, const uint8_t* ct,
+                 size_t ctLen, const uint8_t tag[16], uint8_t* pt);
+}  // namespace aead
 
-const char* Version() { return "3.0.0"; }
+const char* Version() { return "4.0.0"; }
 
 size_t Capacity(uint32_t w, uint32_t h) {
     // 118 header pixels reserved; body must fit data_crc32 (+tag).
@@ -97,7 +121,7 @@ bool Encode(const Image& cover, const uint8_t* payload, size_t payloadLen,
     hdr.push_back(STEGO_MAGIC_1);
     hdr.push_back(STEGO_MAGIC_2);
     hdr.push_back(STEGO_MAGIC_3);
-    codec::PutU16(hdr, STEGO_FORMAT_VERSION);
+    codec::PutU16(hdr, STEGO_FORMAT_V3);
     codec::PutU16(hdr, FlagsOf(opt));
     codec::PutU32(hdr, opt.seed);
     codec::PutU32(hdr, (uint32_t)payloadLen);
@@ -225,6 +249,58 @@ static bool DecodeEnvelope(const Image& img, const uint8_t* hdr,
     return true;
 }
 
+// --- v4 envelope decode (64B header, AEAD, adaptive placement) ---
+static bool DecodeEnvelopeV4(const Image& img, const uint8_t* hdr,
+                             const std::string& password,
+                             std::vector<uint8_t>& out) {
+    uint16_t flags = (uint16_t)(hdr[6] | (hdr[7] << 8));
+    uint32_t seed = (uint32_t)hdr[8] | ((uint32_t)hdr[9] << 8) |
+                    ((uint32_t)hdr[10] << 16) | ((uint32_t)hdr[11] << 24);
+    uint32_t orig = (uint32_t)hdr[12] | ((uint32_t)hdr[13] << 8) |
+                    ((uint32_t)hdr[14] << 16) | ((uint32_t)hdr[15] << 24);
+    uint32_t comp = (uint32_t)hdr[16] | ((uint32_t)hdr[17] << 8) |
+                    ((uint32_t)hdr[18] << 16) | ((uint32_t)hdr[19] << 24);
+    uint32_t costq = (uint32_t)hdr[20] | ((uint32_t)hdr[21] << 8) |
+                     ((uint32_t)hdr[22] << 16) | ((uint32_t)hdr[23] << 24);
+    const uint8_t* salt = hdr + 24;  // salt field (bytes [24..40))
+    uint32_t hcrc = (uint32_t)hdr[44] | ((uint32_t)hdr[45] << 8) |
+                    ((uint32_t)hdr[46] << 16) | ((uint32_t)hdr[47] << 24);
+    if (stego::sha::Crc32(hdr, 44) != hcrc) return false;
+    if (flags & STEGO_F_COMPRESS) return false;
+    if (!(flags & STEGO_F_ENCRYPT) || !(flags & STEGO_F_AUTH)) return false;
+    if (costq < 1 || costq > 16) return false;
+    if (orig < 1 || comp != orig + 4 + STEGO_V4_TAG_LEN) return false;
+    bool adaptive = (flags & STEGO_F_ADAPTIVE) != 0;
+    bool robust = (flags & STEGO_F_ROBUST) != 0;
+
+    std::vector<uint8_t> dk = stego::sha::Pbkdf2(
+        (const uint8_t*)password.data(), password.size(),
+        salt, STEGO_V4_SALT_LEN, STEGO_V4_PBKDF2_ITER, STEGO_V4_KDF_OUT);
+
+    uint32_t nPx = img.w * img.h;
+    if (nPx <= STEGO_V4_HEADER_PX) return false;
+    size_t needSlots = (size_t)comp * 8 * (robust ? 3 : 1);
+    if (needSlots > ((size_t)nPx - STEGO_V4_HEADER_PX) * 2) return false;
+    std::vector<uint32_t> order = stego::codec::CandidateOrderV4(
+        img.rgb, img.w, img.h, seed, costq, adaptive);
+    std::vector<uint8_t> body;
+    if (!stego::codec::ReadV4(img.rgb, order, comp, robust, body))
+        return false;
+    std::vector<uint8_t> pt(comp - STEGO_V4_TAG_LEN);
+    if (!stego::aead::AeadDecrypt(dk.data(), dk.data() + 32, hdr,
+                                  STEGO_V4_HEADER_LEN, body.data(),
+                                  comp - STEGO_V4_TAG_LEN,
+                                  body.data() + comp - STEGO_V4_TAG_LEN,
+                                  pt.data()))
+        return false;
+    uint32_t dcrc = (uint32_t)pt[0] | ((uint32_t)pt[1] << 8) |
+                    ((uint32_t)pt[2] << 16) | ((uint32_t)pt[3] << 24);
+    if (pt.size() != (size_t)orig + 4) return false;
+    if (stego::sha::Crc32(pt.data() + 4, orig) != dcrc) return false;
+    out.assign(pt.begin() + 4, pt.end());
+    return true;
+}
+
 bool Decode(const Image& img, const std::string& password,
             std::vector<uint8_t>& out) {
     out.clear();
@@ -232,17 +308,124 @@ bool Decode(const Image& img, const std::string& password,
     if (img.rgb.size() < (size_t)img.w * img.h * 3) return false;
     size_t totalBits = (size_t)img.w * img.h * 3;
 
-    // Single envelope header (44 bytes, sequential pixels [0,118)).
-    // Anything else - wrong magic, wrong version, CRC/auth failure -
-    // is rejected. No fallbacks.
-    uint8_t hdr[STEGO_HEADER_LEN];
+    // v3 probe first (deployed majority, exact legacy path): 44 bytes over
+    // the 3-channel sequential map. v4 probe second (64 bytes over R/B
+    // slots — v4's magic lives there, so a v3-map read of a v4 image is
+    // garbage by construction). Magic + version + CRC decide; both probes
+    // fail closed.
+    uint8_t hdr[STEGO_V4_HEADER_LEN];
     std::vector<uint32_t> seq = codec::Placement(img.w * img.h, 0);
-    if (!ReadStream(img, seq, totalBits, 0, hdr, sizeof(hdr))) return false;
+    if (ReadStream(img, seq, totalBits, 0, hdr, STEGO_HEADER_LEN) &&
+        hdr[0] == STEGO_MAGIC_0 && hdr[1] == STEGO_MAGIC_1 &&
+        hdr[2] == STEGO_MAGIC_2 && hdr[3] == STEGO_MAGIC_3 &&
+        (uint16_t)(hdr[4] | (hdr[5] << 8)) == STEGO_FORMAT_V3)
+        return DecodeEnvelope(img, hdr, password, out);
+    std::vector<uint32_t> hdrOrder;
+    for (uint32_t i = 0; i < STEGO_V4_HEADER_PX; i++) hdrOrder.push_back(i);
+    std::vector<uint8_t> hdr64;
+    if (!stego::codec::ReadV4(img.rgb, hdrOrder, STEGO_V4_HEADER_LEN,
+                              false, hdr64))
+        return false;
+    memcpy(hdr, hdr64.data(), STEGO_V4_HEADER_LEN);
     if (hdr[0] != STEGO_MAGIC_0 || hdr[1] != STEGO_MAGIC_1 ||
         hdr[2] != STEGO_MAGIC_2 || hdr[3] != STEGO_MAGIC_3) return false;
     uint16_t ver = (uint16_t)(hdr[4] | (hdr[5] << 8));
-    if (ver != STEGO_FORMAT_VERSION) return false;
-    return DecodeEnvelope(img, hdr, password, out);
+    if (ver != STEGO_FORMAT_V4) return false;
+    return DecodeEnvelopeV4(img, hdr, password, out);
+}
+
+size_t CapacityV4(uint32_t w, uint32_t h, bool robust) {
+    // 256 header pixels reserved (R/B slots); body carries 2 bits/px.
+    size_t nPx = (size_t)w * h;
+    if (nPx <= STEGO_V4_HEADER_PX) return 0;
+    size_t slots = (nPx - STEGO_V4_HEADER_PX) * 2;
+    if (robust) slots /= 3;
+    if (slots < (4 + STEGO_V4_TAG_LEN) * 8) return 0;
+    return (slots - (4 + STEGO_V4_TAG_LEN) * 8) / 8;
+}
+
+bool EncodeV4(const Image& cover, const uint8_t* payload, size_t payloadLen,
+              const OptionsV4& opt, Image& out) {
+    if (!payload || payloadLen == 0 || cover.w == 0 || cover.h == 0)
+        return false;
+    if (cover.rgb.size() < (size_t)cover.w * cover.h * 3) return false;
+    if (opt.password.empty()) return false;  // v4 always encrypted+authed
+    if (opt.costq < 1 || opt.costq > 16) return false;
+    uint32_t nPx = cover.w * cover.h;
+    if (nPx <= STEGO_V4_HEADER_PX) return false;
+    uint32_t seed = opt.seed;
+    if (seed == 0 && opt.adaptive) {
+        // 0 is forbidden on the wire for ADAPTIVE: pick nonzero random
+        // (same rule as the Python port — 0 is never written).
+        std::random_device rd;
+        do {
+            seed = (uint32_t)rd();
+        } while (seed == 0);
+    }
+
+    uint8_t salt[STEGO_V4_SALT_LEN];
+    {
+        std::random_device rd;
+        for (size_t i = 0; i < sizeof(salt); i++) salt[i] = (uint8_t)rd();
+    }
+    std::vector<uint8_t> dk = sha::Pbkdf2(
+        (const uint8_t*)opt.password.data(), opt.password.size(),
+        salt, sizeof(salt), STEGO_V4_PBKDF2_ITER, STEGO_V4_KDF_OUT);
+
+    uint32_t comp = (uint32_t)payloadLen + 4 + STEGO_V4_TAG_LEN;
+    std::vector<uint8_t> hdr;
+    hdr.push_back(STEGO_MAGIC_0);
+    hdr.push_back(STEGO_MAGIC_1);
+    hdr.push_back(STEGO_MAGIC_2);
+    hdr.push_back(STEGO_MAGIC_3);
+    codec::PutU16(hdr, STEGO_FORMAT_V4);
+    uint16_t flags = STEGO_F_ENCRYPT | STEGO_F_AUTH;
+    if (opt.scatter) flags |= STEGO_F_SCATTER;
+    if (opt.adaptive) flags |= STEGO_F_ADAPTIVE;
+    if (opt.robust) flags |= STEGO_F_ROBUST;
+    codec::PutU16(hdr, flags);
+    codec::PutU32(hdr, seed);
+    codec::PutU32(hdr, (uint32_t)payloadLen);
+    codec::PutU32(hdr, comp);
+    codec::PutU32(hdr, opt.costq);
+    hdr.insert(hdr.end(), salt, salt + sizeof(salt));
+    codec::PutU32(hdr, 0);
+    uint32_t hcrc = sha::Crc32(hdr.data(), 44);
+    codec::PutU32(hdr, hcrc);
+    hdr.insert(hdr.end(), 16, 0);
+
+    std::vector<uint8_t> pt(4 + payloadLen);
+    uint32_t dcrc = sha::Crc32(payload, payloadLen);
+    pt[0] = (uint8_t)dcrc;
+    pt[1] = (uint8_t)(dcrc >> 8);
+    pt[2] = (uint8_t)(dcrc >> 16);
+    pt[3] = (uint8_t)(dcrc >> 24);
+    memcpy(pt.data() + 4, payload, payloadLen);
+    std::vector<uint8_t> body(comp);
+    uint8_t tag[STEGO_V4_TAG_LEN];
+    aead::AeadEncrypt(dk.data(), dk.data() + 32, hdr.data(), hdr.size(),
+                      pt.data(), pt.size(), body.data(), tag);
+    memcpy(body.data() + comp - STEGO_V4_TAG_LEN, tag, STEGO_V4_TAG_LEN);
+
+    std::vector<uint32_t> order = codec::CandidateOrderV4(
+        cover.rgb, cover.w, cover.h, seed, opt.costq, opt.adaptive);
+    size_t needSlots = (size_t)comp * 8 * (opt.robust ? 3 : 1);
+    if (needSlots > order.size() * 2) return false;
+    uint64_t seed64 = (uint64_t)seed ^
+                      ((uint64_t)salt[0] | ((uint64_t)salt[1] << 8) |
+                       ((uint64_t)salt[2] << 16) | ((uint64_t)salt[3] << 24));
+    std::vector<uint32_t> hdrOrder;
+    for (uint32_t i = 0; i < STEGO_V4_HEADER_PX; i++) hdrOrder.push_back(i);
+    out.w = cover.w;
+    out.h = cover.h;
+    out.rgb = cover.rgb;
+    if (!codec::EmbedV4(out.rgb, hdrOrder, hdr.data(), hdr.size(), false,
+                        seed64, 0))
+        return false;
+    if (!codec::EmbedV4(out.rgb, order, body.data(), body.size(), opt.robust,
+                        seed64, (size_t)STEGO_V4_HEADER_LEN * 8))
+        return false;
+    return true;
 }
 
 }  // namespace stego
@@ -268,6 +451,29 @@ int stego_encode(const stego_image_t* cover, const uint8_t* payload,
     if (!stego::Encode(c, payload, payload_len, o, res)) {
         return (o.compress || (o.auth && o.password.empty())) ? STEGO_C_ERR_UNSUPPORTED
                                                               : STEGO_C_ERR_CAPACITY;
+    }
+    memcpy(out_rgb, res.rgb.data(), res.rgb.size());
+    return STEGO_C_OK;
+}
+
+int stego_encode_v4(const stego_image_t* cover, const uint8_t* payload,
+                     size_t payload_len, const stego_options_v4_t* opt,
+                     uint8_t* out_rgb) {
+    if (!cover || !payload || !opt || !out_rgb) return STEGO_C_ERR_PARAM;
+    stego::Image c;
+    c.w = cover->w;
+    c.h = cover->h;
+    c.rgb.assign(cover->rgb, cover->rgb + (size_t)cover->w * cover->h * 3);
+    stego::OptionsV4 o;
+    o.seed = opt->seed;
+    if (opt->password) o.password = opt->password;
+    o.scatter = opt->scatter != 0;
+    o.adaptive = opt->adaptive != 0;
+    o.robust = opt->robust != 0;
+    o.costq = opt->costq ? opt->costq : 8;
+    stego::Image res;
+    if (!stego::EncodeV4(c, payload, payload_len, o, res)) {
+        return o.password.empty() ? STEGO_C_ERR_PARAM : STEGO_C_ERR_CAPACITY;
     }
     memcpy(out_rgb, res.rgb.data(), res.rgb.size());
     return STEGO_C_OK;

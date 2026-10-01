@@ -1,6 +1,7 @@
 // harness.cpp - argv-driven cross-implementation test helper.
 //   harness enc <w> <h> <seed> <pw|-> <auth01> <in.bin> <out.rgb>
-//   harness dec <w> <h> <pw|-> <in.rgb> <out.bin>
+//   harness enc4 <w> <h> <seed> <pw> <adaptive01> <robust01> <costq> <in.bin> <out.rgb>
+//   harness dec <w> <h> <pw|-> <in.rgb> <out.bin>   (dispatches v3/v4)
 // RGB files are raw triplets (no PNG container); pytest drives both sides.
 #include "stego/stego.h"
 #include <cstdio>
@@ -50,8 +51,37 @@ int main(int argc, char** argv) {
         f.write((const char*)e.rgb.data(), e.rgb.size());
         return 0;
     }
-    if (mode == "dec") {
-        if (argc != 7) return 2;
+    if (mode == "enc4") {
+        if (argc != 11) return 2;
+        uint32_t w = (uint32_t)atoi(argv[2]);
+        uint32_t h = (uint32_t)atoi(argv[3]);
+        uint32_t seed = (uint32_t)atoi(argv[4]);
+        std::string pw = argv[5];
+        int adaptive = atoi(argv[6]);
+        int robust = atoi(argv[7]);
+        uint32_t costq = (uint32_t)atoi(argv[8]);
+        std::vector<uint8_t> cover((size_t)w * h * 3, 0);
+        std::vector<uint8_t> payload = Slurp(argv[9]);
+        stego::Image c;
+        c.w = w;
+        c.h = h;
+        c.rgb = cover;
+        stego::OptionsV4 o;
+        o.seed = seed;
+        o.password = pw;
+        o.adaptive = adaptive != 0;
+        o.robust = robust != 0;
+        o.costq = costq;
+        stego::Image e;
+        if (!stego::EncodeV4(c, payload.data(), payload.size(), o, e)) {
+            std::cerr << "encode4 failed\n";
+            return 1;
+        }
+        std::ofstream f(argv[10], std::ios::binary);
+        f.write((const char*)e.rgb.data(), e.rgb.size());
+        return 0;
+    }
+    if (mode == "dec") {        if (argc != 7) return 2;
         uint32_t w = (uint32_t)atoi(argv[2]);
         uint32_t h = (uint32_t)atoi(argv[3]);
         std::string pw = argv[4];

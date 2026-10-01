@@ -13,7 +13,8 @@ import zlib
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
 from stegolib import (crc32, decode_image, encode_image,
-                      placement, placement_range)
+                      placement, placement_range, decode_image_v4,
+                      encode_image_v4, v4_candidate_order)
 
 
 def black(w, h):
@@ -77,6 +78,67 @@ def test_placement_golden():
     assert len(p) == 100 and sorted(p) == list(range(75, 175))
     assert p != list(range(75, 175))  # actually shuffled
     assert placement(10, 0) == list(range(10))  # seed 0 = identity
+
+
+def test_v4_roundtrips():
+    w, h = 64, 64
+    msg = os.urandom(200)
+    out = encode_image_v4(black(w, h), w, h, msg, 'pw4', seed=7,
+                          adaptive=True)
+    assert decode_image_v4(out, w, h, 'pw4') == msg
+    assert decode_image_v4(out, w, h, 'wrong') is None
+    out = encode_image_v4(black(w, h), w, h, msg, 'pw4', seed=0,
+                          adaptive=False)
+    assert decode_image_v4(out, w, h, 'pw4') == msg
+    out = encode_image_v4(black(w, h), w, h, msg, 'pw4', seed=9,
+                          robust=True)
+    assert decode_image_v4(out, w, h, 'pw4') == msg
+
+
+def test_v4_order_covers_once():
+    # Adaptive order over a textured cover: every pixel >= 256 exactly
+    # once (permutation — the decoder's reproduction premise).
+    w, h = 64, 64
+    flat = []
+    for y in range(h):
+        for x in range(w):
+            v = (x * 37 + y * 91) % 256
+            flat += [v, (v * 5 + 13) % 256, (v * 11 + 71) % 256]
+    order = v4_candidate_order(flat, w, h, 7, 8, True)
+    assert sorted(order) == list(range(256, w * h))
+    # green untouched by a full-capacity-ish embed
+    msg = os.urandom(400)
+    out = encode_image_v4(flat, w, h, msg, 'pw4', seed=7)
+    assert [out[i] for i in range(len(out)) if i % 3 == 1] == \
+           [flat[i] for i in range(len(flat)) if i % 3 == 1]
+
+
+def test_cross_v4_pyenc_cdec(tmp_path):
+    hx = _harness()
+    w, h = 64, 64
+    msg = os.urandom(200)
+    rgb = encode_image_v4(black(w, h), w, h, msg, 'xpw', seed=7)
+    raw = tmp_path / 'v4c.rgb'
+    raw.write_bytes(bytes(rgb))
+    out = tmp_path / 'o.bin'
+    r = subprocess.run([hx, 'dec', str(w), str(h), 'xpw', str(raw),
+                        str(out)])
+    assert r.returncode == 0
+    assert out.read_bytes() == msg
+
+
+def test_cross_v4_cenc_pydec(tmp_path):
+    hx = _harness()
+    w, h = 64, 64
+    msg = os.urandom(200)
+    src = tmp_path / 'p.bin'
+    src.write_bytes(msg)
+    raw = tmp_path / 'v4e.rgb'
+    r = subprocess.run([hx, 'enc4', str(w), str(h), '7', 'xpw', '1', '0',
+                        '8', str(src), str(raw)])
+    assert r.returncode == 0
+    rgb = list(raw.read_bytes())
+    assert decode_image_v4(rgb, w, h, 'xpw') == msg
 
 
 def _harness():

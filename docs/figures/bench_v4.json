@@ -1,0 +1,256 @@
+{
+ "covers": 12,
+ "dims": [
+  256,
+  256
+ ],
+ "password": "(fixed bench password)",
+ "methods": {
+  "v3seq@0.25bpp": {
+   "bpp": 0.25,
+   "payload": 2048,
+   "psnr_mean": 61.79,
+   "changed_frac": 0.0431,
+   "detectors": {
+    "chi2": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": 0.0
+    },
+    "rs": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": 0.0302
+    },
+    "spa": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": -0.2615
+    },
+    "smooth": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": -0.5669
+    }
+   },
+   "probe_auc": 1.0
+  },
+  "v3scatter@0.25bpp": {
+   "bpp": 0.25,
+   "payload": 2048,
+   "psnr_mean": 61.79,
+   "changed_frac": 0.043,
+   "detectors": {
+    "chi2": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": 0.0
+    },
+    "rs": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": 0.0195
+    },
+    "spa": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": -0.2683
+    },
+    "smooth": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": -0.5713
+    }
+   },
+   "probe_auc": 1.0
+  },
+  "v4adapt@0.25bpp": {
+   "bpp": 0.25,
+   "payload": 2048,
+   "psnr_mean": 61.81,
+   "changed_frac": 0.0429,
+   "detectors": {
+    "chi2": {
+     "auc": 0.979,
+     "det05": 0.917,
+     "stego_mean": 0.0
+    },
+    "rs": {
+     "auc": 0.517,
+     "det05": 0.0,
+     "stego_mean": -0.0024
+    },
+    "spa": {
+     "auc": 0.833,
+     "det05": 0.5,
+     "stego_mean": -0.2863
+    },
+    "smooth": {
+     "auc": 0.535,
+     "det05": 0.0,
+     "stego_mean": -0.5849
+    }
+   },
+   "probe_auc": 0.767
+  },
+  "v4nonadapt@0.25bpp": {
+   "bpp": 0.25,
+   "payload": 2048,
+   "psnr_mean": 61.82,
+   "changed_frac": 0.0428,
+   "detectors": {
+    "chi2": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": 0.0
+    },
+    "rs": {
+     "auc": 0.535,
+     "det05": 0.167,
+     "stego_mean": -0.002
+    },
+    "spa": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": -0.2548
+    },
+    "smooth": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": -0.5672
+    }
+   },
+   "probe_auc": 1.0
+  },
+  "v3seq@1.0bpp": {
+   "bpp": 1.0,
+   "payload": 8192,
+   "psnr_mean": 55.88,
+   "changed_frac": 0.1679,
+   "detectors": {
+    "chi2": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": 0.0
+    },
+    "rs": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": 0.1153
+    },
+    "spa": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": -0.1893
+    },
+    "smooth": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": -0.5133
+    }
+   },
+   "probe_auc": 1.0
+  },
+  "v3scatter@1.0bpp": {
+   "bpp": 1.0,
+   "payload": 8192,
+   "psnr_mean": 55.88,
+   "changed_frac": 0.1679,
+   "detectors": {
+    "chi2": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": 0.0
+    },
+    "rs": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": 0.0713
+    },
+    "spa": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": -0.2228
+    },
+    "smooth": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": -0.5372
+    }
+   },
+   "probe_auc": 1.0
+  },
+  "v4adapt@1.0bpp": {
+   "bpp": 1.0,
+   "payload": 8192,
+   "psnr_mean": 55.88,
+   "changed_frac": 0.1679,
+   "detectors": {
+    "chi2": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": 0.0
+    },
+    "rs": {
+     "auc": 0.42,
+     "det05": 0.0,
+     "stego_mean": -0.0043
+    },
+    "spa": {
+     "auc": 0.972,
+     "det05": 0.917,
+     "stego_mean": -0.2856
+    },
+    "smooth": {
+     "auc": 0.597,
+     "det05": 0.0,
+     "stego_mean": -0.5846
+    }
+   },
+   "probe_auc": 1.0
+  },
+  "v4nonadapt@1.0bpp": {
+   "bpp": 1.0,
+   "payload": 8192,
+   "psnr_mean": 55.88,
+   "changed_frac": 0.1677,
+   "detectors": {
+    "chi2": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": 0.0
+    },
+    "rs": {
+     "auc": 0.417,
+     "det05": 0.083,
+     "stego_mean": -0.0038
+    },
+    "spa": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": -0.1869
+    },
+    "smooth": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": -0.529
+    }
+   },
+   "probe_auc": 1.0
+  }
+ },
+ "sanity": {
+  "chi2": {
+   "dir": 1.0
+  },
+  "rs": {
+   "dir": -1.0
+  },
+  "spa": {
+   "dir": -1.0
+  },
+  "smooth": {
+   "dir": -1.0
+  }
+ }
+}

@@ -24,18 +24,39 @@ struct Options {
 // Encode payload into cover (cover pixels preserved except LSBs).
 // Returns false on capacity/parameter errors. Payload plus header/CRC/HMAC
 // overhead must fit in w*h*3 bits. On success `out` is a full RGB image.
+// Writes the v3 envelope (frozen).
 bool Encode(const Image& cover, const uint8_t* payload, size_t payloadLen,
             const Options& opt, Image& out);
 
-// Decode: single envelope format (magic + version + header CRC).
-// Strict: CRC/HMAC failures return false. No legacy fallbacks.
+// v4 options (FORMAT.md §2): always encrypted + authenticated (password
+// REQUIRED); adaptive ternary placement over R/B slots (green untouched).
+struct OptionsV4 {
+    uint32_t seed = 0;        // 0 = random nonzero when adaptive,
+                              // sequential when non-adaptive
+    std::string password;     // REQUIRED, non-empty
+    bool scatter = true;      // policy signal (keyed order always applies)
+    bool adaptive = true;     // cost-ordered placement (green-invariant)
+    bool robust = false;      // repetition-3 + majority vote
+    uint32_t costq = 8;       // cost buckets 1..16
+};
+
+// Encode with the v4 envelope. Returns false on capacity/parameter
+// errors. New function (additive): v3 Encode behavior is unchanged.
+bool EncodeV4(const Image& cover, const uint8_t* payload, size_t payloadLen,
+              const OptionsV4& opt, Image& out);
+
+// Decode: dispatches on the header version (v3 and v4 accepted).
+// Strict: CRC/AEAD failures return false. No legacy fallbacks.
 bool Decode(const Image& img, const std::string& password,
             std::vector<uint8_t>& out);
 
 // Capacity in payload bytes for given dims + options overhead estimate.
 size_t Capacity(uint32_t w, uint32_t h);
 
-// Library version string ("3.0.0").
+// v4 capacity (2 bits/px body over R/B slots, minus AEAD overhead).
+size_t CapacityV4(uint32_t w, uint32_t h, bool robust);
+
+// Library version string ("4.0.0").
 const char* Version();
 
 }  // namespace stego

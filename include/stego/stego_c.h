@@ -38,6 +38,21 @@ int stego_encode(const stego_image_t* cover,
                  const uint8_t* payload, size_t payload_len,
                  const stego_options_t* opt, uint8_t* out_rgb);
 
+// v4 options (additive; existing struct untouched). password REQUIRED.
+typedef struct {
+    uint32_t seed;         // 0 = random nonzero when adaptive
+    const char* password;  // REQUIRED, non-empty
+    int scatter;
+    int adaptive;
+    int robust;
+    uint32_t costq;        // 1..16
+} stego_options_v4_t;
+
+// v4 encode (additive; stego_decode dispatches v3/v4 by header version).
+int stego_encode_v4(const stego_image_t* cover,
+                    const uint8_t* payload, size_t payload_len,
+                    const stego_options_v4_t* opt, uint8_t* out_rgb);
+
 // out/out_len: callee mallocs (caller frees with stego_free).
 // NOTE: stego_decode currently collapses all decode failures (bad format,
 // CRC mismatch, auth failure, wrong password) to STEGO_C_ERR_FORMAT.

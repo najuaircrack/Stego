@@ -6,13 +6,18 @@ import struct
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
-from stegolib import decode_image, encode_image
+from stegolib import decode_image, encode_image, decode_auto, decode_image_v4
 
 VDIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vectors')
 # Test-only passwords matching gen_vectors.py cases.
 PASSWORDS = {
     'enc-pw': 'test-password-1',
     'full-auth': 'correct horse battery staple',
+}
+PASSWORDS_V4 = {
+    'v4-adapt-64': 'v4-test-pw-1',
+    'v4-nonadapt-64': 'v4-test-pw-2',
+    'v4-robust-96': 'v4-test-pw-3',
 }
 
 
@@ -25,12 +30,46 @@ def test_golden_vectors():
         manifest = json.load(f)
     assert len(manifest) >= 5
     for entry in manifest:
+        if entry.get('version', 3) != 3:
+            continue
         rgb = list(open(os.path.join(VDIR, entry['file']), 'rb').read())
         w, h = entry['w'], entry['h']
         assert len(rgb) == w * h * 3
         got = decode_image(rgb, w, h, password=PASSWORDS.get(entry['name'], ''))
         assert got is not None, entry['name']
         assert hashlib.sha256(got).hexdigest() == entry['payload_sha256'], entry['name']
+
+
+def test_golden_vectors_v4():
+    # Committed v4 envelopes: C++ decoders must read Python's bytes exactly
+    # (see also the harness cross-impl battery in test_roundtrip.py).
+    with open(os.path.join(VDIR, 'manifest.json')) as f:
+        manifest = json.load(f)
+    v4 = [e for e in manifest if e.get('version', 3) == 4]
+    assert len(v4) >= 3
+    for entry in v4:
+        rgb = list(open(os.path.join(VDIR, entry['file']), 'rb').read())
+        w, h = entry['w'], entry['h']
+        assert len(rgb) == w * h * 3
+        got = decode_image_v4(rgb, w, h,
+                              password=PASSWORDS_V4[entry['name']])
+        assert got is not None, entry['name']
+        assert hashlib.sha256(got).hexdigest() == entry['payload_sha256'], entry['name']
+        # dispatch agrees, wrong password fails closed
+        assert decode_auto(rgb, w, h,
+                           password=PASSWORDS_V4[entry['name']]) == got
+        assert decode_image_v4(rgb, w, h, password='wrong') is None
+
+
+def test_v4_malformed_tamper():
+    with open(os.path.join(VDIR, 'manifest.json')) as f:
+        manifest = json.load(f)
+    entry = next(e for e in manifest if e['name'] == 'v4-adapt-64')
+    rgb = list(open(os.path.join(VDIR, entry['file']), 'rb').read())
+    w, h = entry['w'], entry['h']
+    rgb[600] ^= 1  # body bit: AEAD must fail closed
+    assert decode_image_v4(rgb, w, h,
+                           password=PASSWORDS_V4[entry['name']]) is None
 
 
 def _img(w, h, payload, **kw):
