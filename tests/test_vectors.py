@@ -6,7 +6,7 @@ import struct
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
-from stegolib import decode_image, encode_image, decode_auto, decode_image_v4
+from stegolib import decode_image, encode_image
 
 VDIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'vectors')
 # Test-only passwords matching gen_vectors.py cases.
@@ -51,14 +51,14 @@ def test_golden_vectors_v4():
         rgb = list(open(os.path.join(VDIR, entry['file']), 'rb').read())
         w, h = entry['w'], entry['h']
         assert len(rgb) == w * h * 3
-        got = decode_image_v4(rgb, w, h,
-                              password=PASSWORDS_V4[entry['name']])
+        got = decode_image(rgb, w, h,
+                           password=PASSWORDS_V4[entry['name']])
         assert got is not None, entry['name']
         assert hashlib.sha256(got).hexdigest() == entry['payload_sha256'], entry['name']
         # dispatch agrees, wrong password fails closed
-        assert decode_auto(rgb, w, h,
-                           password=PASSWORDS_V4[entry['name']]) == got
-        assert decode_image_v4(rgb, w, h, password='wrong') is None
+        assert decode_image(rgb, w, h,
+                            password=PASSWORDS_V4[entry['name']]) == got
+        assert decode_image(rgb, w, h, password='wrong') is None
 
 
 def test_v4_malformed_tamper():
@@ -68,11 +68,13 @@ def test_v4_malformed_tamper():
     rgb = list(open(os.path.join(VDIR, entry['file']), 'rb').read())
     w, h = entry['w'], entry['h']
     rgb[600] ^= 1  # body bit: AEAD must fail closed
-    assert decode_image_v4(rgb, w, h,
-                           password=PASSWORDS_V4[entry['name']]) is None
+    assert decode_image(rgb, w, h,
+                        password=PASSWORDS_V4[entry['name']]) is None
 
 
 def _img(w, h, payload, **kw):
+    # v3 test helper (v3 header layout assumptions below need it).
+    kw.setdefault('envelope', 'v3')
     return encode_image(black(w, h), w, h, payload, **kw)
 
 
@@ -155,7 +157,7 @@ def test_boundary_exact_fit():
     w, h = 40, 40
     cap = ((w * h - 118) * 3 - 32) // 8
     msg = os.urandom(cap)
-    out = encode_image(black(w, h), w, h, msg)
+    out = encode_image(black(w, h), w, h, msg, envelope='v3')
     assert decode_image(out, w, h) == msg
 
 
@@ -163,7 +165,7 @@ def test_boundary_one_over():
     w, h = 40, 40
     cap = ((w * h - 118) * 3 - 32) // 8
     try:
-        encode_image(black(w, h), w, h, os.urandom(cap + 1))
+        encode_image(black(w, h), w, h, os.urandom(cap + 1), envelope='v3')
     except ValueError:
         return
     assert False, 'expected capacity refusal'
@@ -173,7 +175,7 @@ def test_boundary_empty_payload():
     # Empty payloads are rejected at encode time (explicit, documented).
     w, h = 32, 32
     try:
-        encode_image(black(w, h), w, h, b'')
+        encode_image(black(w, h), w, h, b'', envelope='v3')
     except ValueError:
         return
     assert False, 'expected empty-payload refusal'
@@ -182,7 +184,7 @@ def test_boundary_empty_payload():
 def test_boundary_odd_dims():
     w, h = 33, 41
     msg = os.urandom(100)
-    out = encode_image(black(w, h), w, h, msg, seed=3)
+    out = encode_image(black(w, h), w, h, msg, seed=3, envelope='v3')
     assert decode_image(out, w, h) == msg
 
 

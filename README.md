@@ -1,6 +1,6 @@
-# Stego - hide any file inside a PNG image
+# Stego — hide any file inside a PNG image
 
-You have a file. You want it to travel inside an ordinary picture - no suspicious
+You have a file. You want it to travel inside an ordinary picture — no suspicious
 attachments, no weird file types, just a PNG that opens normally everywhere.
 Later, you (or your program) pull the exact bytes back out. That's the whole job.
 
@@ -16,89 +16,140 @@ Later, you (or your program) pull the exact bytes back out. That's the whole job
   your file back, bit-for-bit identical
 ```
 
-Typical uses: bundling a payload with an installer graphic, watermarking
-builds with their own metadata, moving a config through a channel that only
-allows images, CTF and security training. If you need the bytes to *run*
-somewhere, that's your code's job - this library hands you bytes and stops.
-(How to run them is covered below - it is a separate step on purpose.)
+One standard API, two envelopes: **v4** (modern default — AEAD encryption,
+adaptive ternary embedding) and **v3** (legacy, frozen, still readable).
+You pick the writer; reading is automatic by version. Typical uses: bundling
+a payload with an installer graphic, watermarking builds with their own
+metadata, moving a config through a channel that only allows images, CTF and
+security training. If you need the bytes to *run* somewhere, that's your
+code's job — this library hands you bytes and stops. (How to run them is
+covered below — it is a separate step on purpose.)
 
 ## 60-second example
 
 ```powershell
 pip install Pillow              # the only dependency
 
-# 1. Hide (any file type works - this one happens to be an .exe):
-python python/stego_cli.py hide payload.exe --cover photo.png -o out.png
+# 1. Hide (any file type works - this one happens to be an .exe).
+#    v4 is the default: password required, everything authenticated:
+python python/stego_cli.py hide payload.exe --cover photo.png -o out.png --password "long random phrase here"
 
 # 2. Check what you made (no password needed for this part):
 python python/stego_cli.py info out.png
 # dimensions: 1983x793 (1572519 px, ~589694 payload bytes max)
-# format: headered v3 (current=3)
-# flags: scatter=False encrypt=False auth=False compress=False
-# seed: 0
-# payload size: 300544 bytes (stored 300544)
+# format: stego envelope v4
+# flags: adaptive=True robust=False scatter=True
+# seed: 3819400277  costq: 8
+# payload size: 300544 bytes (stored 300564)
 
 # 3. Get it back:
-python python/stego_cli.py reveal out.png -o back.bin
+python python/stego_cli.py reveal out.png -o back.bin --password "long random phrase here"
 # compare the hashes - they match on success; on any failure the tool
 # tells you instead of handing you partial bytes.
 ```
 
-Need secrecy too? Add a password. It changes two things: the bytes get
-encrypted before hiding (wrong password = clean failure, never garbage),
-and you can add an authentication tag so tampered images are rejected
-instead of silently decoding wrong:
+Need the legacy layout (old decoders, constrained tooling)? One flag —
+everything else stays identical:
 
 ```powershell
-python python/stego_cli.py hide payload.exe --cover photo.png -o out.png --password "long random phrase here" --auth
-python python/stego_cli.py reveal out.png -o back.bin --password "long random phrase here"
+python python/stego_cli.py hide payload.exe --cover photo.png -o out.png --envelope v3 [--password ...] [--auth]
+python python/stego_cli.py reveal out.png -o back.bin [--password ...]
 ```
 
 ## How it works (the 30-second version)
 
-Each pixel holds 3 color values (red, green, blue). Flipping the *last bit*
-of a value changes the color by 1/255 - invisible to eyes, readable to code:
+Each pixel holds 3 color values (red, green, blue). The v4 envelope changes
+only red and blue, by ±1 at most — invisible to eyes, readable to code —
+while green stays bit-exact so both sides agree *exactly* on where data
+lives, without retries or second-guessing:
 
-```
-  pixel:   [ R=142 ][ G=87 ][ B=201 ]      message bits: 1 0 1
-              |         |         |
-              v         v         v
-           [...1]    [...0]    [...1]       <-- only the last bit touched
+![v4 adaptive placement: textured regions carry the payload, smooth regions stay exact](docs/figures/selection_overlay.png)
 
-  3 bits per pixel. A 1983x793 photo holds ~590KB this way.
-```
+Costs come from a wavelet texture map (smooth sky = expensive, texture =
+cheap), and a syndrome-trellis coder finds the globally cheapest flip
+pattern instead of flipping greedily:
 
-Before hiding, your file gets a small header (magic bytes, version, sizes,
-a checksum), so decoding can tell a real payload apart from a random photo
-instead of returning garbage. With a password, there's also a salt and an
-authentication tag. The full byte-level layout is in `docs/FORMAT.md` -
-written so a second implementation in any language can match it exactly
-(C++, Python, and Rust already do; they prove it against each other in tests).
+![cost buckets on a real cover: dark = smooth/expensive, bright = textured/cheap](docs/figures/cost_buckets.png)
+
+Before hiding, your file gets authenticated encryption (wrong password or
+any tampering = clean failure, never garbage), and the full 64-byte header
+is covered by the authentication tag:
+
+![v3 vs v4 header layouts, to scale](docs/figures/envelope.svg)
+
+The full byte-level layout is in `docs/FORMAT.md` — written so a second
+implementation in any language can match it exactly (C++, Python, and Rust
+already do; they prove it against each other in tests). The data flow:
+
+![v4 encode/decode pipeline](docs/figures/pipeline.svg)
 
 Be straight with yourself about one thing: this hides data from *casual*
-inspection, not from steganalysis tools. If your threat model includes
-someone running statistical tests on the image, read `docs/SECURITY.md`
-first - it says plainly what this does and doesn't promise.
+inspection, not from every analysis. v4 measurably beats v3 against
+classical detectors (RS analysis goes blind, see below) — but a global
+chi-square test still sees high-rate embeds, and no one here claims
+otherwise. If your threat model includes statistical testing, read
+`docs/SECURITY.md` and `docs/ANALYSIS.md` first — numbers included,
+no invisibility claims.
+
+## Measured, not claimed
+
+Classical-detector benchmark (`python/bench_steganalysis.py`, 12 covers ×
+5 methods × 2 rates, AUC 0.5 = blind). Full tables in `docs/ANALYSIS.md`:
+
+![detector AUC at 0.25 bpp — v4adapt (green) vs v3 (dashed)](docs/figures/bench_auc_025bpp.svg)
+
+Headline: RS analysis (AUC 1.00 on v3) drops to coin-flip on v4
+(0.42–0.54, **zero detections at 5% false positives**); second-order
+SPAM features separate STC from greedy (0.90 vs 1.00). PSNR is identical
+across methods at matched rates — the win is *where* (texture) and *how*
+(symmetric, cost-optimal), never "fewer changes".
 
 ## Using it from code
 
-**Python** - `from stegolib import encode_image, decode_image, capacity`
-(same folder as the CLI; mirror of the C++ behavior, proven identical
-by shared test vectors).
+**Python** — one standard entry point per direction (`from stegolib import
+encode_image, decode_image, capacity`):
 
-**C++** - link the static lib, or drop in the single header:
+```python
+from stegolib import encode_image, decode_image, capacity
+
+stego = encode_image(cover_rgb, w, h, payload,
+                     password="long random phrase here",
+                     seed=7)                          # v4 default; seed=0 + adaptive = random
+plain = decode_image(stego_rgb, w, h, password="...")  # reads v3 and v4
+legacy = encode_image(cover_rgb, w, h, payload, seed=7,
+                      envelope='v3')                   # frozen legacy layout
+budget = capacity(w, h)                                # v4 budget (envelope='v3' for legacy)
+```
+
+Encode options: `seed`, `adaptive=True/False`, `robust=True/False`
+(Reed–Solomon framing), `costq=1..16`, `stc=True/False`,
+`kdf='argon2id'/'pbkdf2'` (+ `argon2_m_kib`, `argon2_time`); v3 uses
+`seed`/`password`/`do_auth`/`scatter` only. Decode takes just pixels,
+dims, and password — the version rides in the image.
+
+**C++** — link the static lib, or drop in the single header:
 ```cpp
 #define STEGO_IMPLEMENTATION
 #include "stego_all.h"   // single_include/
 
 stego::Image cover{w, h, rgb};
-stego::Options opt; opt.password = "pw"; opt.auth = true;
+stego::OptionsV4 o4;
+o4.password = "pw"; o4.seed = 7;         // v4 (adaptive/STC/robust/costq/kdf fields)
 stego::Image out;
-stego::Encode(cover, data, len, opt, out);   // false = won't fit / bad params
-```
+if (!stego::EncodeV4(cover, data, len, o4, out)) { /* capacity/params */ }
 
-**C** - `include/stego/stego_c.h`: five functions, fixed-width types,
-explicit error codes, you free what it allocates (`stego_free`).
+std::vector<uint8_t> back;
+if (!stego::Decode(out, "pw", back)) { /* format/CRC/auth failure */ }
+// v3: stego::Encode with stego::Options (frozen); Decode reads both.
+```
+(C++ keeps version-pinned encode names — explicit beats modal in a
+statically-linked API — while `Decode` dispatches on the header version.
+The C ABI mirrors this: `stego_encode` / `stego_encode_v4`, one
+`stego_decode`. No signature ever changes: format bumps never imply ABI
+bumps.)
+
+**C** - `include/stego/stego_c.h`: fixed-width types, explicit error codes,
+you free what it allocates (`stego_free`).
 
 **Rust** - `bindings/rust/stego` (safe wrapper) over `stego-sys`
 (hand-written FFI, compiles the C++ core itself via the `cc` crate -
@@ -107,6 +158,21 @@ no libclang needed, but you do need a C++ toolchain).
 **Copy-paste starters** in `examples/`: `extract.cpp`, `extract.c`,
 `extract.py`, `extract.rs` - each one loads an image, decodes to a file,
 nothing more. Start from whichever matches your language.
+
+## Envelopes: v4 or v3?
+
+|  | v4 (default) | v3 (legacy) |
+|---|---|---|
+| Encryption | ChaCha20-Poly1305 AEAD, header as associated data | SHA-256-CTR + separate HMAC (optional) |
+| Key derivation | Argon2id (PBKDF2 selectable) | PBKDF2 100k |
+| Embedding | Ternary ±1, cost-ordered, STC-optimal | LSB replacement, uniform/scatter |
+| Password | Required | Optional |
+| Robust mode | Reed–Solomon + interleave | None |
+| Readers | v4-aware decoders (this repo) | Everything ever shipped |
+
+Use v4 for anything new. Use v3 only when the other side speaks v3 and
+can't be upgraded (old tooling, frozen deployments). v3 bytes decode
+identically forever — frozen means frozen.
 
 ## Running what you extract
 
@@ -176,8 +242,9 @@ Practical notes that apply to all four: serve images over HTTPS from a
 reputable host (URL reputation is scored independently of content);
 boring filenames (banner, texture, sprite); never re-save through a
 JPEG pipeline, chat app, or CDN "optimization" (any recompression kills
-the low bits and the payload with them); validate `MZ`/magic before
-launch so a swapped image fails closed instead of executing junk.
+the low bits and the payload with them — use `--robust` if the channel
+might flip scattered bits); validate `MZ`/magic before launch so a
+swapped image fails closed instead of executing junk.
 
 ## Building and testing
 
@@ -200,22 +267,24 @@ GDI+ examples skip themselves outside Windows. MinGW produces a real `.a`.
 
 ```
 include/stego/   public headers (C++ API, C ABI, format constants)
-src/             the implementation (sha256, codec, api)
+src/             the implementation (sha256, codec, aead, argon2, rs, api)
 single_include/  stego_all.h - same code, one file, stb-style
 python/          CLI + importable package + pip metadata
 bindings/rust/   stego-sys (FFI) + stego (safe wrapper)
 examples/        one decode-to-file template per language
 tests/           round-trips, golden vectors, malformed inputs, boundaries,
                  cross-implementation matrix (C++ <-> Python agree byte-wise)
-docs/            FORMAT (the spec) - API - INTEGRATION - SECURITY
+docs/            FORMAT (the spec) - API - INTEGRATION - SECURITY - ANALYSIS
+docs/figures/    generated visuals (deterministic scripts, committed output)
 ```
 
 ## Practical rules that will save you trouble
 
-1. **Capacity first.** Payload + ~80 bytes overhead must fit in `width x height x 3`
-   bits. The tool refuses with a clear error otherwise - pick a bigger photo,
-   not wishful thinking. `stego info` tells you an image's budget.
-2. **Passwords: 20+ random characters.** Short passwords in, brute force out.
+1. **Capacity first.** Check `capacity(w, h)` (or `stego info`) before
+   embedding — the encoder refuses oversize payloads with a clear error.
+   Pick a bigger photo, not wishful thinking.
+2. **Passwords: 20+ random characters.** Short passwords in, brute force out
+   (Argon2id buys real resistance; PBKDF2 buys time).
 3. **Keep the PNG lossless end-to-end.** Never re-save through a JPEG pipeline,
    a chat app that recompresses, or an uploader that strips metadata - any of
    those destroys the low bits and the payload with them. PNG in, PNG out.
@@ -228,10 +297,12 @@ docs/            FORMAT (the spec) - API - INTEGRATION - SECURITY
 
 ## Versioning
 
-`VERSION` file is authoritative (`3.0.0`). `STEGO_FORMAT_VERSION` (currently 3)
-names the envelope layout; `STEGO_ABI_VERSION` (currently 1) names the C ABI -
-a format bump never implies an ABI bump. One format only: anything else is
-rejected, no legacy fallbacks.
+`VERSION` file is authoritative (`5.0.0`). `STEGO_FORMAT_V4` (`0x0004`,
+newest written) and `STEGO_FORMAT_V3` (`0x0003`, frozen) name the envelope
+layouts; `STEGO_ABI_VERSION` (currently 1) names the C ABI — a format bump
+never implies an ABI bump. v5 removed the split v3/v4 Python entry points
+in favor of one standard API (`encode_image`/`decode_image` +
+`envelope=`); decoders read both versions registry-free.
 
 ## License
 

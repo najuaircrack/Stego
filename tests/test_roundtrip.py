@@ -13,8 +13,7 @@ import zlib
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
 from stegolib import (crc32, decode_image, encode_image,
-                      placement, placement_range, decode_image_v4,
-                      encode_image_v4, v4_candidate_order)
+                      placement, placement_range, v4_candidate_order)
 
 
 def black(w, h):
@@ -37,14 +36,14 @@ def test_crc32_vectors():
 def test_plain_roundtrip():
     w, h = 64, 64
     msg = bytes(range(256)) * 3
-    out = encode_image(black(w, h), w, h, msg)
+    out = encode_image(black(w, h), w, h, msg, envelope='v3')
     assert decode_image(out, w, h) == msg
 
 
 def test_scatter_roundtrip():
     w, h = 64, 64
     msg = os.urandom(500)
-    out = encode_image(black(w, h), w, h, msg, seed=12345)
+    out = encode_image(black(w, h), w, h, msg, seed=12345, envelope='v3')
     assert decode_image(out, w, h) == msg
 
 
@@ -52,7 +51,8 @@ def test_encrypt_auth_roundtrip():
     w, h = 64, 64
     msg = os.urandom(300)
     out = encode_image(black(w, h), w, h, msg, seed=999,
-                       password='correct horse', do_auth=True)
+                       password='correct horse', do_auth=True,
+                       envelope='v3')
     assert decode_image(out, w, h, password='correct horse') == msg
     assert decode_image(out, w, h, password='wrong') is None
     assert decode_image(out, w, h) is None
@@ -62,7 +62,7 @@ def test_tamper_rejected():
     w, h = 64, 64
     msg = os.urandom(200)
     out = encode_image(black(w, h), w, h, msg, seed=7,
-                       password='pw', do_auth=True)
+                       password='pw', do_auth=True, envelope='v3')
     out = list(out)
     # Flip header-region LSBs (pixels [0,118) always hold the header):
     # decode must fail, never silently match.
@@ -87,16 +87,41 @@ def test_v4_roundtrips():
     w, h = 64, 64
     msg = os.urandom(200)
     kw = {'kdf': 'argon2id', 'argon2_m_kib': 32, 'argon2_time': 1}
-    out = encode_image_v4(black(w, h), w, h, msg, 'pw4', seed=7,
-                          adaptive=True, **kw)
-    assert decode_image_v4(out, w, h, 'pw4') == msg
-    assert decode_image_v4(out, w, h, 'wrong') is None
-    out = encode_image_v4(black(w, h), w, h, msg, 'pw4', seed=0,
-                          adaptive=False, **kw)
-    assert decode_image_v4(out, w, h, 'pw4') == msg
-    out = encode_image_v4(black(w, h), w, h, msg, 'pw4', seed=9,
-                          robust=True, **kw)
-    assert decode_image_v4(out, w, h, 'pw4') == msg
+    out = encode_image(black(w, h), w, h, msg, 'pw4', seed=7,
+                       adaptive=True, **kw)
+    assert decode_image(out, w, h, 'pw4') == msg
+    assert decode_image(out, w, h, 'wrong') is None
+    out = encode_image(black(w, h), w, h, msg, 'pw4', seed=0,
+                       adaptive=False, **kw)
+    assert decode_image(out, w, h, 'pw4') == msg
+    out = encode_image(black(w, h), w, h, msg, 'pw4', seed=9,
+                       robust=True, **kw)
+    assert decode_image(out, w, h, 'pw4') == msg
+
+
+def test_unified_dispatch():
+    # One standard API: envelope selects the writer, decode reads both,
+    # and an invalid envelope fails fast (not silently v3).
+    w, h = 64, 64
+    msg = os.urandom(100)
+    kw = {'kdf': 'argon2id', 'argon2_m_kib': 32, 'argon2_time': 1}
+    v4 = encode_image(black(w, h), w, h, msg, 'pw', seed=7, **kw)
+    v3 = encode_image(black(w, h), w, h, msg, 'pw', seed=7,
+                      envelope='v3')
+    assert decode_image(v4, w, h, 'pw') == msg
+    assert decode_image(v3, w, h, 'pw') == msg
+    try:
+        encode_image(black(w, h), w, h, msg, envelope='v9')
+    except ValueError:
+        pass
+    else:
+        assert False, 'expected ValueError for bad envelope'
+    try:
+        encode_image(black(w, h), w, h, msg, envelope='v4')
+    except ValueError:
+        pass  # v4 requires a password
+    else:
+        assert False, 'expected ValueError for passwordless v4'
 
 
 def test_v4_order_covers_once():
@@ -112,8 +137,8 @@ def test_v4_order_covers_once():
     assert sorted(order) == list(range(256, w * h))
     # green untouched by a full-capacity-ish embed
     msg = os.urandom(400)
-    out = encode_image_v4(flat, w, h, msg, 'pw4', seed=7,
-                          kdf='argon2id', argon2_m_kib=32, argon2_time=1)
+    out = encode_image(flat, w, h, msg, 'pw4', seed=7,
+                       kdf='argon2id', argon2_m_kib=32, argon2_time=1)
     assert [out[i] for i in range(len(out)) if i % 3 == 1] == \
            [flat[i] for i in range(len(flat)) if i % 3 == 1]
 
@@ -129,8 +154,8 @@ def test_cross_v4_pyenc_cdec(tmp_path):
         for x in range(w):
             v = (x * 37 + y * 91) % 256
             flat += [v, (v * 5 + 13) % 256, (v * 11 + 71) % 256]
-    rgb = encode_image_v4(flat, w, h, msg, 'xpw', seed=7,
-                          kdf='argon2id', argon2_m_kib=32, argon2_time=1)
+    rgb = encode_image(flat, w, h, msg, 'xpw', seed=7,
+                       kdf='argon2id', argon2_m_kib=32, argon2_time=1)
     raw = tmp_path / 'v4c.rgb'
     raw.write_bytes(bytes(rgb))
     out = tmp_path / 'o.bin'
@@ -151,7 +176,7 @@ def test_cross_v4_cenc_pydec(tmp_path):
                         '8', '1', '1', '32', '1', str(src), str(raw)])
     assert r.returncode == 0
     rgb = list(raw.read_bytes())
-    assert decode_image_v4(rgb, w, h, 'xpw') == msg
+    assert decode_image(rgb, w, h, 'xpw') == msg
 
 
 def test_cross_v4_cenc_pydec_nostc(tmp_path):
@@ -166,7 +191,7 @@ def test_cross_v4_cenc_pydec_nostc(tmp_path):
                         '8', '0', '1', '32', '1', str(src), str(raw)])
     assert r.returncode == 0
     rgb = list(raw.read_bytes())
-    assert decode_image_v4(rgb, w, h, 'xpw') == msg
+    assert decode_image(rgb, w, h, 'xpw') == msg
 
 
 def test_cross_v4_kdf0(tmp_path):
@@ -174,8 +199,8 @@ def test_cross_v4_kdf0(tmp_path):
     hx = _harness()
     w, h = 64, 64
     msg = os.urandom(200)
-    rgb = encode_image_v4(black(w, h), w, h, msg, 'xpw', seed=7,
-                          kdf='pbkdf2')
+    rgb = encode_image(black(w, h), w, h, msg, 'xpw', seed=7,
+                       kdf='pbkdf2')
     raw = tmp_path / 'v4k.rgb'
     raw.write_bytes(bytes(rgb))
     out = tmp_path / 'o.bin'
@@ -228,7 +253,7 @@ def test_cross_pyenc_cdec(tmp_path):
     hx = _harness()
     w, h = 48, 48
     msg = os.urandom(200)
-    rgb = encode_image(black(w, h), w, h, msg, seed=4242)
+    rgb = encode_image(black(w, h), w, h, msg, seed=4242, envelope='v3')
     raw = tmp_path / 'c.rgb'
     raw.write_bytes(bytes(rgb))
     out = tmp_path / 'o.bin'

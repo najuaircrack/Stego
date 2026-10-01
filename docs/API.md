@@ -1,6 +1,6 @@
 # API - stego library usage
 
-Version: 4.0.0 (`stego_version()` / `VERSION` file).
+Version: 5.0.0 (`stego_version()` / `VERSION` file).
 
 ## C++
 
@@ -59,18 +59,22 @@ ABI bump (`STEGO_ABI_VERSION` will change if their meaning is ever used).
 ## Python (`python/stego_cli.py`, package `stego-tool`)
 
 ```powershell
-python python/stego_cli.py hide payload.bin --cover cover.png -o out.png [--seed N] [--password P] [--auth] [--scatter]
-python python/stego_cli.py hide payload.bin --cover cover.png -o out.png --v4 --password P [--adaptive/--no-adaptive] [--robust] [--costq Q]
+python python/stego_cli.py hide payload.bin --cover cover.png -o out.png --password P [--seed N] [--adaptive/--no-adaptive] [--robust] [--costq Q] [--stc/--no-stc] [--kdf argon2id]
+python python/stego_cli.py hide payload.bin --cover cover.png -o out.png --envelope v3 [--seed N] [--password P] [--auth] [--scatter]
 python python/stego_cli.py reveal out.png -o back.bin [--password P]
 python python/stego_cli.py info out.png
 ```
+
+v4 is the default envelope (add `--envelope v3` for the frozen legacy
+layout). `reveal`/`info` auto-detect the version — no flag needed.
 
 Older `python/embed.py` / `python/extract.py` predate the unified CLI and
 remain working; new automation should use `stego_cli.py`.
 
 `stegolib.encode_image / decode_image / capacity` mirror the C++ codec
-bit-for-bit (proven by cross-implementation tests), plus
-`encode_image_v4 / decode_image_v4 / decode_auto` for the v4 envelope.
+bit-for-bit (proven by cross-implementation tests). One standard entry
+point per direction: `encode_image(..., envelope='v4')` (pass
+`envelope='v3'` for legacy), `decode_image` reads both versions.
 Pillow required for PNG IO only.
 
 ## Rust (`bindings/rust/stego` over `stego-sys`)

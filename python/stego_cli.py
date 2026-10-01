@@ -5,8 +5,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__))))
-from stegolib import (decode_auto, decode_image, encode_image,
-                      encode_image_v4)
+from stegolib import (decode_image, encode_image)
 from PIL import Image
 
 
@@ -24,19 +23,14 @@ def cmd_hide(a):
     if not payload:
         print('ERROR: empty payload refused')
         return 1
-    if a.v4:
-        if not a.password:
-            print('ERROR: v4 requires --password')
-            return 1
-        out = encode_image_v4(flat(img), w, h, payload, a.password,
-                              seed=a.seed, adaptive=a.adaptive,
-                              robust=a.robust, costq=a.costq)
-        env = 'v4'
-    else:
-        out = encode_image(flat(img), w, h, payload, seed=a.seed,
-                           password=a.password or '', do_auth=a.auth,
-                           scatter=a.scatter or a.seed != 0)
-        env = 'v3'
+    if a.envelope == 'v4' and not a.password:
+        print('ERROR: v4 requires --password')
+        return 1
+    out = encode_image(flat(img), w, h, payload, password=a.password or '',
+                       seed=a.seed, envelope=a.envelope, do_auth=a.auth,
+                       scatter=a.scatter or None, adaptive=a.adaptive,
+                       robust=a.robust, costq=a.costq, stc=a.stc, kdf=a.kdf)
+    env = a.envelope
     res = Image.new('RGB', (w, h))
     res.putdata([tuple(out[i:i + 3]) for i in range(0, len(out), 3)])
     res.save(a.output, 'PNG')
@@ -47,7 +41,7 @@ def cmd_hide(a):
 def cmd_reveal(a):
     img = Image.open(a.image).convert('RGB')
     w, h = img.size
-    payload = decode_auto(flat(img), w, h, password=a.password or '')
+    payload = decode_image(flat(img), w, h, password=a.password or '')
     if payload is None:
         print('ERROR: decode failed (format/CRC/auth)')
         return 1
@@ -115,13 +109,17 @@ def main(argv=None):
     h.add_argument('--scatter', action='store_true')
     h.add_argument('--password', default='')
     h.add_argument('--auth', action='store_true')
-    h.add_argument('--v4', action='store_true',
-                   help='v4 envelope (AEAD + adaptive ternary, needs --password)')
+    h.add_argument('--envelope', choices=('v4', 'v3'), default='v4',
+                   help='envelope version (default: modern v4)')
     h.add_argument('--adaptive', dest='adaptive', action='store_true',
                    default=True)
     h.add_argument('--no-adaptive', dest='adaptive', action='store_false')
     h.add_argument('--robust', action='store_true')
     h.add_argument('--costq', type=int, default=8)
+    h.add_argument('--stc', dest='stc', action='store_true', default=True)
+    h.add_argument('--no-stc', dest='stc', action='store_false')
+    h.add_argument('--kdf', choices=('argon2id', 'pbkdf2'),
+                   default='argon2id')
     h.set_defaults(fn=cmd_hide)
     r = sub.add_parser('reveal')
     r.add_argument('image')

@@ -1,6 +1,6 @@
 # stego - portable steganography library (static, add_subdirectory-able).
 cmake_minimum_required(VERSION 3.20)
-project(stego VERSION 4.0.0 LANGUAGES C CXX)
+project(stego VERSION 5.0.0 LANGUAGES C CXX)
 
 option(STEGO_SANITIZE "Sanitizer build (address; +undefined where supported)" OFF)
 if(STEGO_SANITIZE)

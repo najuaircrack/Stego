@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""extract.py - stego CLI: stego PNG -> payload (v3/v4 auto-dispatch)."""
+"""extract.py - stego CLI: stego PNG -> payload (v3/v4 auto-detected)."""
 import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
-from stegolib import decode_auto
+from stegolib import decode_image
 from PIL import Image
 
 
@@ -20,7 +20,7 @@ def main():
     flat = []
     for r, g, b in img.getdata():
         flat += [r, g, b]
-    payload = decode_auto(flat, w, h, password=a.password)
+    payload = decode_image(flat, w, h, password=a.password)
     if payload is None:
         print('ERROR: decode failed (format/CRC/auth)')
         sys.exit(1)

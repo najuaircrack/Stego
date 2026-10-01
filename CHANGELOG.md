@@ -3,6 +3,17 @@
 All notable changes to the stego library. Format: Keep a Changelog.
 Versions: semantic (`VERSION` file is authoritative).
 
+## [5.0.0]
+
+### Changed (Python API unification — breaking for Python callers only)
+- One standard entry point per direction: `encode_image(...,
+  envelope='v4')` (v4 default) and version-agnostic `decode_image`
+  (reads v3+v4). The split `encode_image_v4` / `decode_image_v4` /
+  `decode_auto` are removed; CLIs take `--envelope v3|v4` (default v4)
+  instead of `--v4`. C/C++/Rust surfaces unchanged (additive only).
+- README rewritten around the unified API with rendered figures,
+  end-to-end usage guide, envelope comparison, and measured numbers.
+
 ## [4.1.0]
 
 ### Added (hardening pass; v3/v4.0 bytes still decode identically)

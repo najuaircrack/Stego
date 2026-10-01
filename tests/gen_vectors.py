@@ -10,7 +10,7 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'python'))
-from stegolib import encode_image, encode_image_v4
+from stegolib import encode_image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 VDIR = os.path.join(HERE, 'vectors')
@@ -57,10 +57,8 @@ def main():
         kw = dict(kw)
         version = kw.pop('version', 3)
         cover = textured(w, h) if version == 4 else black(w, h)
-        if version == 4:
-            rgb = encode_image_v4(cover, w, h, payload, **kw)
-        else:
-            rgb = encode_image(cover, w, h, payload, **kw)
+        rgb = encode_image(cover, w, h, payload,
+                           envelope='v4' if version == 4 else 'v3', **kw)
         raw = bytes(rgb)
         fn = f'{name}.rgb'
         with open(os.path.join(VDIR, fn), 'wb') as f:

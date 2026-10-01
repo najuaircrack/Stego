@@ -75,7 +75,7 @@ bool AeadDecrypt(const uint8_t key[32], const uint8_t nonce[12],
                  size_t ctLen, const uint8_t tag[16], uint8_t* pt);
 }  // namespace aead
 
-const char* Version() { return "4.0.0"; }
+const char* Version() { return "5.0.0"; }
 
 size_t Capacity(uint32_t w, uint32_t h) {
     // 118 header pixels reserved; body must fit data_crc32 (+tag).

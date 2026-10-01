@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """stegolib.py - codec core (mirrors src/*.cpp bit-for-bit).
 
-Two envelopes, one module. v3 (frozen): [44B header][body][data_crc32]
-[hmac?], header pixels [0,118) sequential, body via
-PlacementRange(118, N-118, seed). v4 (modern): [64B header][AEAD body],
-ternary +/-1 embedding, cost-ordered adaptive placement, ChaCha20-Poly1305
-with the full header as associated data. `decode_auto` dispatches on the
-header version. See docs/FORMAT.md (normative for both).
+Two envelopes, one module, one standard API. v3 (frozen): [44B
+header][body][data_crc32][hmac?], header pixels [0,118) sequential, body
+via PlacementRange(118, N-118, seed). v4 (modern, default): [64B
+header][AEAD body], ternary +/-1 embedding, cost-ordered adaptive
+placement, ChaCha20-Poly1305 with the full header as associated data.
+`encode_image(..., envelope=...)` selects the writer (default v4);
+`decode_image` reads both by header version. See docs/FORMAT.md
+(normative for both).
 """
 import hashlib
 import hmac as hmac_mod
@@ -25,6 +27,17 @@ F_SCATTER = 0x0002
 F_ENCRYPT = 0x0004
 F_AUTH = 0x0008
 MASK64 = 0xFFFFFFFFFFFFFFFF
+
+FORMAT_V4 = 0x0004
+V4_HEADER_LEN = 64
+V4_HEADER_PX = 256  # 256 px * 2 ch (R/B) = 512 header bits exactly
+V4_PBKDF2_ITER = 210000
+V4_KDF_OUT = 96     # 32 msg-key + 12 nonce + 52 reserved
+V4_TAG_LEN = 16
+F_ADAPTIVE = 0x0010
+F_ROBUST = 0x0020
+F_STC = 0x0040
+V4_COSTQ_DEFAULT = 8
 
 
 def crc32(data):
@@ -93,7 +106,7 @@ def kdf(pw, salt):
     return hashlib.pbkdf2_hmac('sha256', pw, salt, PBKDF2_ITER, 64)
 
 
-def encode_image(pixels, w, h, payload, seed=0, password='',
+def _encode_v3(pixels, w, h, payload, seed=0, password='',
                  do_auth=False, scatter=None):
     """pixels: flat [R,G,B]* list. Returns new flat list with message."""
     if scatter is None:
@@ -160,15 +173,57 @@ def encode_image(pixels, w, h, payload, seed=0, password='',
     return out
 
 
-def capacity(w, h):
-    """Payload-byte budget for dims (v3 layout, conservative, no tag)."""
-    npx = w * h
-    if npx <= HEADER_PX:
-        return 0
-    body_bits = (npx - HEADER_PX) * 3
-    if body_bits < 4 * 8:
-        return 0
-    return (body_bits - 4 * 8) // 8
+def encode_image(pixels, w, h, payload, password='', seed=0, envelope='v4',
+                 do_auth=False, scatter=None,
+                 adaptive=True, robust=False, costq=V4_COSTQ_DEFAULT,
+                 stc=True, kdf='argon2id', argon2_m_kib=65536,
+                 argon2_time=3):
+    """One standard encode entry point (default: modern v4 envelope).
+
+    envelope='v4': AEAD + adaptive ternary placement. Uses password
+        (REQUIRED), seed, adaptive, robust, costq, stc, kdf and the
+        argon2_* knobs. seed=0 with adaptive on picks nonzero random
+        (0 is never written); scatter defaults on.
+    envelope='v3': legacy frozen layout. Uses seed, password, do_auth
+        and scatter only (scatter defaults to seed != 0); every v4-only
+        option is ignored.
+    """
+    if envelope == 'v3':
+        return _encode_v3(pixels, w, h, payload, seed=seed,
+                          password=password, do_auth=do_auth,
+                          scatter=scatter)
+    elif envelope == 'v4':
+        if scatter is None:
+            scatter = True
+        return _encode_v4(pixels, w, h, payload, password, seed=seed,
+                          adaptive=adaptive, robust=robust, costq=costq,
+                          scatter=scatter, kdf=kdf,
+                          argon2_m_kib=argon2_m_kib, argon2_time=argon2_time,
+                          stc=stc)
+    raise ValueError("envelope must be 'v3' or 'v4'")
+
+
+def capacity(w, h, envelope='v4', robust=False):
+    """Payload-byte budget for dims. v3: legacy formula. v4: R/B slots
+    minus AEAD overhead (RS-framing aware when robust)."""
+    if envelope == 'v3':
+        npx = w * h
+        if npx <= HEADER_PX:
+            return 0
+        body_bits = (npx - HEADER_PX) * 3
+        if body_bits < 4 * 8:
+            return 0
+        return (body_bits - 4 * 8) // 8
+    elif envelope == 'v4':
+        npx = w * h
+        if npx <= V4_HEADER_PX:
+            return 0
+        cw = ((npx - V4_HEADER_PX) * 2) // 8
+        if not robust:
+            return cw - 20 if cw >= 20 else 0
+        nb = cw // 255
+        return nb * 223 - 20 if nb * 223 > 20 else 0
+    raise ValueError("envelope must be 'v3' or 'v4'")
 
 
 def read_bits(pixels, w, h, place, bit_off, nbytes):
@@ -224,7 +279,7 @@ def _decode(pixels, w, h, hdr, password):
     return body
 
 
-def decode_image(pixels, w, h, password=''):
+def _decode_v3(pixels, w, h, password=''):
     npx = w * h
     if w == 0 or h == 0 or len(pixels) < npx * 3:
         return None  # truncated/degenerate buffer: fail clean, never index OOB
@@ -241,16 +296,6 @@ def decode_image(pixels, w, h, password=''):
 # v4 envelope (FORMAT.md section 2): AEAD + adaptive ternary placement.
 # ============================================================================
 
-FORMAT_V4 = 0x0004
-V4_HEADER_LEN = 64
-V4_HEADER_PX = 256  # 256 px * 2 ch (R/B) = 512 header bits exactly
-V4_PBKDF2_ITER = 210000
-V4_KDF_OUT = 96     # 32 msg-key + 12 nonce + 52 reserved
-V4_TAG_LEN = 16
-F_ADAPTIVE = 0x0010
-F_ROBUST = 0x0020
-F_STC = 0x0040
-V4_COSTQ_DEFAULT = 8
 
 
 def _rotl32(v, n):
@@ -1051,7 +1096,7 @@ def _v4_slots_avail(npx):
     return 2 * max(0, npx - V4_HEADER_PX)  # R/B channels only
 
 
-def encode_image_v4(pixels, w, h, payload, password, seed=None, adaptive=True,
+def _encode_v4(pixels, w, h, payload, password, seed=None, adaptive=True,
                     robust=False, costq=V4_COSTQ_DEFAULT, scatter=True,
                     kdf='argon2id', argon2_m_kib=65536, argon2_time=3,
                     stc=True):
@@ -1137,7 +1182,7 @@ def encode_image_v4(pixels, w, h, payload, password, seed=None, adaptive=True,
     return out
 
 
-def decode_image_v4(pixels, w, h, password):
+def _decode_v4(pixels, w, h, password):
     npx = w * h
     if w == 0 or h == 0 or len(pixels) < npx * 3 or npx <= V4_HEADER_PX:
         return None  # truncated/degenerate buffer: fail clean, never OOB
@@ -1177,11 +1222,13 @@ def decode_image_v4(pixels, w, h, password):
     return payload
 
 
-def decode_auto(pixels, w, h, password=''):
-    """Version-dispatched decode: v3 and v4 from one entry point. The two
-    envelopes use different header slot maps (v3: RGB sequential, v4: R/B
-    only), so probe v3 first (deployed majority, exact legacy path), then
-    v4. Both probes are fail-closed (magic + version + CRC decide)."""
+def decode_image(pixels, w, h, password=''):
+    """One standard decode entry point: reads v3 and v4 envelopes.
+    Probes v3 first (deployed majority, exact legacy path), then v4
+    (R/B slots — a v3-map read of a v4 image is garbage by
+    construction). Both probes fail closed (magic + version + CRC
+    decide); anything else returns None. No exceptions for bad input,
+    no fallbacks."""
     npx = w * h
     if w == 0 or h == 0 or len(pixels) < npx * 3:
         return None
@@ -1189,11 +1236,11 @@ def decode_auto(pixels, w, h, password=''):
     hdr3 = read_bits(pixels, w, h, seq, 0, HEADER_LEN)
     if hdr3[:4] == MAGIC and \
             struct.unpack('<H', hdr3[4:6])[0] == FORMAT_VERSION:
-        return decode_image(pixels, w, h, password)
+        return _decode_v3(pixels, w, h, password)
     if npx > V4_HEADER_PX:
         hdr4 = v4_read_bits(pixels, w, list(range(V4_HEADER_PX)),
                             V4_HEADER_LEN * 8)
         if hdr4[:4] == MAGIC and \
                 struct.unpack('<H', hdr4[4:6])[0] == FORMAT_V4:
-            return decode_image_v4(pixels, w, h, password)
+            return _decode_v4(pixels, w, h, password)
     return None

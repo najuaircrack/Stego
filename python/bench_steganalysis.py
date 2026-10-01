@@ -36,19 +36,23 @@ PASSWORD = 'benchmark-password-0147'
 PAYLOAD = bytes((i * 37 + 11) % 256 for i in range(8192))
 METHODS = [
     ('v3seq', lambda px, w, h, p: S.encode_image(
-        px, w, h, p, seed=0, password=PASSWORD, do_auth=True)),
+        px, w, h, p, seed=0, password=PASSWORD, do_auth=True,
+        envelope='v3')),
     ('v3scatter', lambda px, w, h, p: S.encode_image(
-        px, w, h, p, seed=7, password=PASSWORD, do_auth=True)),
+        px, w, h, p, seed=7, password=PASSWORD, do_auth=True,
+        envelope='v3')),
     # KDF is orthogonal to distortion (fresh random salt per embed either
     # way): benchmarks pin PBKDF2 for speed; Argon2id interop is proven
     # by vectors + cross tests, production params by C++ self-tests.
-    ('v4adapt', lambda px, w, h, p: S.encode_image_v4(
-        px, w, h, p, PASSWORD, seed=7, adaptive=True, kdf='pbkdf2')),
-    ('v4greedy', lambda px, w, h, p: S.encode_image_v4(
-        px, w, h, p, PASSWORD, seed=7, adaptive=True, kdf='pbkdf2',
-        stc=False)),
-    ('v4nonadapt', lambda px, w, h, p: S.encode_image_v4(
-        px, w, h, p, PASSWORD, seed=0, adaptive=False, kdf='pbkdf2')),
+    ('v4adapt', lambda px, w, h, p: S.encode_image(
+        px, w, h, p, PASSWORD, seed=7, envelope='v4', adaptive=True,
+        kdf='pbkdf2')),
+    ('v4greedy', lambda px, w, h, p: S.encode_image(
+        px, w, h, p, PASSWORD, seed=7, envelope='v4', adaptive=True,
+        kdf='pbkdf2', stc=False)),
+    ('v4nonadapt', lambda px, w, h, p: S.encode_image(
+        px, w, h, p, PASSWORD, seed=0, envelope='v4', adaptive=False,
+        kdf='pbkdf2')),
 ]
 
 
