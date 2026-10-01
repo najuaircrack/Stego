@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="960" height="300" viewBox="0 0 960 300" font-family="ui-monospace, Consolas, monospace">
+  <rect x="0" y="0" width="960" height="300" fill="#0d1117"/>
+  <text x="24" y="32" font-size="19" font-weight="bold" fill="#ffffff">delivery shapes — how the image meets the program</text>
+
+  <g font-size="11">
+    <rect x="24" y="52" width="216" height="176" rx="8" fill="#161d27" stroke="#4b5871"/>
+    <text x="40" y="80" font-size="13" font-weight="bold" fill="#3f7fbf">A · bundled image</text>
+    <text x="40" y="104" fill="#c9d1d9">out.png ships beside</text>
+    <text x="40" y="121" fill="#c9d1d9">the binary (or as a</text>
+    <text x="40" y="138" fill="#c9d1d9">resource). No network.</text>
+    <text x="40" y="163" fill="#8b949e">Simplest to reason</text>
+    <text x="40" y="180" fill="#8b949e">about. Start here.</text>
+    <text x="40" y="209" fill="#3aa655">offline · auditable</text>
+
+    <rect x="258" y="52" width="216" height="176" rx="8" fill="#161d27" stroke="#4b5871"/>
+    <text x="274" y="80" font-size="13" font-weight="bold" fill="#3aa655">B · downloader</text>
+    <text x="274" y="104" fill="#c9d1d9">fetches https://host/i.png</text>
+    <text x="274" y="121" fill="#c9d1d9">on first run, then</text>
+    <text x="274" y="138" fill="#c9d1d9">extracts + runs.</text>
+    <text x="274" y="163" fill="#8b949e">Small distributor;</text>
+    <text x="274" y="180" fill="#8b949e">payload is never a</text>
+    <text x="274" y="197" fill="#8b949e">binary in transit.</text>
+    <text x="274" y="209" fill="#c98a2b">needs https host</text>
+
+    <rect x="492" y="52" width="216" height="176" rx="8" fill="#161d27" stroke="#4b5871"/>
+    <text x="508" y="80" font-size="13" font-weight="bold" fill="#c98a2b">C · scheduled runner</text>
+    <text x="508" y="104" fill="#c9d1d9">OS launches your program</text>
+    <text x="508" y="121" fill="#c9d1d9">on a trigger; it fetches</text>
+    <text x="508" y="138" fill="#c9d1d9">+ runs. Good for updaters.</text>
+    <text x="508" y="163" fill="#8b949e">Very visible to task /</text>
+    <text x="508" y="180" fill="#8b949e">service auditing.</text>
+    <text x="508" y="209" fill="#c98a2b">visible by design</text>
+
+    <rect x="726" y="52" width="216" height="176" rx="8" fill="#161d27" stroke="#4b5871"/>
+    <text x="742" y="80" font-size="13" font-weight="bold" fill="#d94f4f">D · memory handoff</text>
+    <text x="742" y="104" fill="#c9d1d9">decode to RAM, execute</text>
+    <text x="742" y="121" fill="#c9d1d9">without touching disk.</text>
+    <text x="742" y="138" fill="#c9d1d9">Most complex option.</text>
+    <text x="742" y="163" fill="#8b949e">Executable anonymous memory</text>
+    <text x="742" y="180" fill="#8b949e">is a classic red flag.</text>
+    <text x="742" y="209" fill="#d94f4f">only if disk is impossible</text>
+  </g>
+
+  <text x="24" y="258" font-size="11" fill="#c9d1d9">All shapes: HTTPS from a reputable host · boring filenames (banner, texture, sprite) · never re-save through JPEG/chat/CDN recompression.</text>
+  <text x="24" y="278" font-size="11" fill="#8b949e">Channel flips scattered bits? Re-embed with --robust (Reed–Solomon + interleave). Validate magic (MZ / #! / ELF) before launch — fail closed.</text>
+</svg>

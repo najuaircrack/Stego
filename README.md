@@ -1,29 +1,18 @@
-# Stego — hide any file inside a PNG image
+<div align="center">
 
-You have a file. You want it to travel inside an ordinary picture — no suspicious
-attachments, no weird file types, just a PNG that opens normally everywhere.
-Later, you (or your program) pull the exact bytes back out. That's the whole job.
+# Stego
 
-```
-  your file (anything: .exe, .zip, .sh, .bin, ...)
-        |
-        |  stego hide
-        v
-  cover photo --> stego.png  (opens fine, looks the same)
-        |
-        |  stego reveal
-        v
-  your file back, bit-for-bit identical
-```
+**Hide any file inside a PNG image. It travels as an ordinary picture, it arrives back bit-for-bit.**
 
-One standard API, two envelopes: **v4** (modern default — AEAD encryption,
-adaptive ternary embedding) and **v3** (legacy, frozen, still readable).
-You pick the writer; reading is automatic by version. Typical uses: bundling
-a payload with an installer graphic, watermarking builds with their own
-metadata, moving a config through a channel that only allows images, CTF and
-security training. If you need the bytes to *run* somewhere, that's your
-code's job — this library hands you bytes and stops. (How to run them is
-covered below — it is a separate step on purpose.)
+[![CI](https://github.com/najuaircrack/Stego/actions/workflows/stego.yml/badge.svg)](https://github.com/najuaircrack/Stego/actions/workflows/stego.yml)
+[![Version](https://img.shields.io/badge/version-5.0.0-blue)](CHANGELOG.md)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green)](LICENSE)
+
+![Red pixels mark where a 16 KiB payload lands: textured regions carry it, smooth regions stay exact](docs/figures/selection_overlay.png)
+
+*One standard API, two envelopes: **v4** (modern default — AEAD encryption, adaptive ternary embedding) and **v3** (legacy, frozen, still readable). You pick the writer; reading is automatic by version.*
+
+</div>
 
 ## 60-second example
 
@@ -56,30 +45,34 @@ python python/stego_cli.py hide payload.exe --cover photo.png -o out.png --envel
 python python/stego_cli.py reveal out.png -o back.bin [--password ...]
 ```
 
-## How it works (the 30-second version)
+Typical uses: bundling a payload with an installer graphic, watermarking
+builds with their own metadata, moving a config through a channel that only
+allows images, CTF and security training. If you need the bytes to *run*
+somewhere, that's your code's job — this library hands you bytes and stops.
+(How to run them is covered below — it is a separate step on purpose.)
+
+## How it works
 
 Each pixel holds 3 color values (red, green, blue). The v4 envelope changes
 only red and blue, by ±1 at most — invisible to eyes, readable to code —
 while green stays bit-exact so both sides agree *exactly* on where data
-lives, without retries or second-guessing:
+lives, without retries or second-guessing. Texture carries the payload;
+smooth sky stays untouched:
 
-![v4 adaptive placement: textured regions carry the payload, smooth regions stay exact](docs/figures/selection_overlay.png)
+![Cost buckets on a real cover: dark = smooth and expensive, bright = textured and cheap](docs/figures/cost_buckets.png)
 
-Costs come from a wavelet texture map (smooth sky = expensive, texture =
-cheap), and a syndrome-trellis coder finds the globally cheapest flip
-pattern instead of flipping greedily:
-
-![cost buckets on a real cover: dark = smooth/expensive, bright = textured/cheap](docs/figures/cost_buckets.png)
-
+Costs come from a wavelet texture map plus a syndrome-trellis coder that
+finds the globally cheapest flip pattern instead of flipping greedily.
 Before hiding, your file gets authenticated encryption (wrong password or
 any tampering = clean failure, never garbage), and the full 64-byte header
 is covered by the authentication tag:
 
 ![v3 vs v4 header layouts, to scale](docs/figures/envelope.svg)
 
-The full byte-level layout is in `docs/FORMAT.md` — written so a second
-implementation in any language can match it exactly (C++, Python, and Rust
-already do; they prove it against each other in tests). The data flow:
+The full byte-level layout is in [`docs/FORMAT.md`](docs/FORMAT.md) —
+written so a second implementation in any language can match it exactly
+(C++, Python, and Rust already do; they prove it against each other in
+tests). The data flow, both directions:
 
 ![v4 encode/decode pipeline](docs/figures/pipeline.svg)
 
@@ -88,21 +81,26 @@ inspection, not from every analysis. v4 measurably beats v3 against
 classical detectors (RS analysis goes blind, see below) — but a global
 chi-square test still sees high-rate embeds, and no one here claims
 otherwise. If your threat model includes statistical testing, read
-`docs/SECURITY.md` and `docs/ANALYSIS.md` first — numbers included,
-no invisibility claims.
+[`docs/SECURITY.md`](docs/SECURITY.md) and [`docs/ANALYSIS.md`](docs/ANALYSIS.md)
+first — numbers included, no invisibility claims.
 
 ## Measured, not claimed
 
 Classical-detector benchmark (`python/bench_steganalysis.py`, 12 covers ×
-5 methods × 2 rates, AUC 0.5 = blind). Full tables in `docs/ANALYSIS.md`:
+5 methods × 2 rates, AUC 0.5 = blind). Full tables in [`docs/ANALYSIS.md`](docs/ANALYSIS.md):
 
-![detector AUC at 0.25 bpp — v4adapt (green) vs v3 (dashed)](docs/figures/bench_auc_025bpp.svg)
+![ROC curves, clean vs stego at 0.25 bpp — v4 solid, v3 dashed](docs/figures/bench_roc.svg)
+
+![Detector AUC at 0.25 bpp — v4adapt (green) vs v3 (blue)](docs/figures/bench_auc_025bpp.svg)
+
+![Detector AUC at 1.0 bpp — high-rate embeds stay visible to global tests](docs/figures/bench_auc_10bpp.svg)
 
 Headline: RS analysis (AUC 1.00 on v3) drops to coin-flip on v4
 (0.42–0.54, **zero detections at 5% false positives**); second-order
 SPAM features separate STC from greedy (0.90 vs 1.00). PSNR is identical
 across methods at matched rates — the win is *where* (texture) and *how*
-(symmetric, cost-optimal), never "fewer changes".
+(symmetric, cost-optimal), never "fewer changes". At 1.0 bpp the global
+chi-square test still sees everything: rate matters more than method.
 
 ## Using it from code
 
@@ -217,26 +215,12 @@ single `system()` call for throwaway tooling.
 That is the entire boundary: the library proves the bytes are correct
 (checksums, authentication); your code decides they are safe and runs them.
 
-## Delivery shapes (programs that fetch images)
+## Delivery shapes
 
-In practice the image rarely travels next to the program. Common shapes,
-honestly scored:
+In practice the image rarely travels next to the program. Four common
+shapes, honestly scored:
 
-```
-  SHAPE A - bundled image            SHAPE B - downloader stager
-  app ships with out.png beside      app fetches https://host/i.png
-  the binary (or as a resource).     on first run, then extracts+runs.
-  No network. Simplest to            Small distributor, payload never
-  reason about.                      on disk in transit as a binary.
-
-  SHAPE C - scheduled/service runner SHAPE D - memory handoff
-  OS launches your program on a      decode to RAM, execute without
-  trigger; it fetches + runs.       touching disk. Most complex, most
-  Good for updaters; very visible   scrutinized by endpoint products
-  to task/service auditing.         (anonymous executable memory is a
-                                    classic red flag). Only if disk
-                                    writes are truly impossible.
-```
+![Delivery shapes A–D: bundled, downloader, scheduled runner, memory handoff](docs/figures/delivery.svg)
 
 Practical notes that apply to all four: serve images over HTTPS from a
 reputable host (URL reputation is scored independently of content);
