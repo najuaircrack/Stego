@@ -1,20 +1,21 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="500" viewBox="0 0 960 500" font-family="ui-monospace, Consolas, monospace">
-<text x="20" y="30" font-size="19" font-weight="bold" fill="#1a2233">ROC — clean vs stego, 0.25bpp, 12 synthetic covers</text>
-<line x1="70" y1="400" x2="730" y2="400" stroke="#3a4763" stroke-width="2"/>
-<line x1="70" y1="60" x2="70" y2="400" stroke="#3a4763" stroke-width="2"/>
-<line x1="70" y1="400" x2="730" y2="60" stroke="#c0c6d2" stroke-dasharray="6,5"/>
-<text x="400" y="434" font-size="11" fill="#6b7690" text-anchor="middle">false positive rate →</text>
+<rect x="0" y="0" width="960" height="500" fill="#0d1117"/>
+<text x="20" y="30" font-size="19" font-weight="bold" fill="#ffffff">ROC — clean vs stego, 0.25bpp, 12 synthetic covers</text>
+<line x1="70" y1="400" x2="730" y2="400" stroke="#8b949e" stroke-width="2"/>
+<line x1="70" y1="60" x2="70" y2="400" stroke="#8b949e" stroke-width="2"/>
+<line x1="70" y1="400" x2="730" y2="60" stroke="#4b5871" stroke-dasharray="6,5"/>
+<text x="400" y="434" font-size="11" fill="#8b949e" text-anchor="middle">false positive rate →</text>
 <path d="M70.0,400.0 L70.0,371.7 L70.0,315.0 L70.0,286.7 L70.0,258.3 L70.0,230.0 L70.0,201.7 L70.0,173.3 L70.0,145.0 L70.0,116.7 L70.0,88.3 L70.0,60.0 L125.0,60.0 L180.0,60.0 L235.0,60.0 L290.0,60.0 L345.0,60.0 L400.0,60.0 L455.0,60.0 L510.0,60.0 L565.0,60.0 L620.0,60.0 L675.0,60.0 L730.0,60.0" fill="none" stroke="#7a5fd0" stroke-width="2.5" stroke-dasharray="7,4"/>
 <text x="746" y="80" font-size="11" fill="#7a5fd0">v3scatter rs (AUC 1.00)</text>
 <path d="M70.0,400.0 L70.0,371.7 L70.0,343.3 L70.0,315.0 L70.0,286.7 L70.0,258.3 L70.0,230.0 L70.0,201.7 L70.0,173.3 L70.0,116.7 L70.0,88.3 L70.0,60.0 L125.0,60.0 L180.0,60.0 L235.0,60.0 L290.0,60.0 L345.0,60.0 L400.0,60.0 L455.0,60.0 L510.0,60.0 L565.0,60.0 L620.0,60.0 L675.0,60.0 L730.0,60.0" fill="none" stroke="#7a5fd0" stroke-width="2.5" stroke-dasharray="7,4"/>
 <text x="746" y="103" font-size="11" fill="#7a5fd0">v3scatter spa (AUC 1.00)</text>
-<path d="M70.0,400.0 L70.0,371.7 L125.0,343.3 L180.0,343.3 L180.0,315.0 L235.0,315.0 L235.0,286.7 L235.0,258.3 L290.0,258.3 L290.0,230.0 L345.0,230.0 L400.0,230.0 L455.0,201.7 L510.0,201.7 L565.0,201.7 L565.0,173.3 L565.0,145.0 L620.0,145.0 L620.0,116.7 L675.0,116.7 L675.0,88.3 L730.0,88.3 L730.0,60.0" fill="none" stroke="#2e9e5b" stroke-width="2.5"/>
-<text x="746" y="126" font-size="11" fill="#2e9e5b">v4adapt rs (AUC 0.51)</text>
-<path d="M70.0,400.0 L70.0,371.7 L70.0,343.3 L70.0,315.0 L125.0,315.0 L180.0,315.0 L235.0,315.0 L290.0,315.0 L290.0,286.7 L290.0,258.3 L290.0,230.0 L290.0,201.7 L345.0,201.7 L400.0,201.7 L400.0,173.3 L400.0,145.0 L400.0,116.7 L455.0,116.7 L510.0,116.7 L565.0,116.7 L565.0,88.3 L620.0,60.0 L675.0,60.0 L730.0,60.0" fill="none" stroke="#2e9e5b" stroke-width="2.5"/>
-<text x="746" y="149" font-size="11" fill="#2e9e5b">v4adapt spa (AUC 0.64)</text>
+<path d="M70.0,400.0 L70.0,371.7 L125.0,343.3 L180.0,343.3 L180.0,315.0 L235.0,315.0 L235.0,286.7 L235.0,258.3 L290.0,258.3 L290.0,230.0 L345.0,230.0 L400.0,230.0 L455.0,201.7 L510.0,201.7 L565.0,201.7 L565.0,173.3 L565.0,145.0 L620.0,145.0 L620.0,116.7 L675.0,116.7 L675.0,88.3 L730.0,88.3 L730.0,60.0" fill="none" stroke="#3aa655" stroke-width="2.5"/>
+<text x="746" y="126" font-size="11" fill="#3aa655">v4adapt rs (AUC 0.51)</text>
+<path d="M70.0,400.0 L70.0,371.7 L70.0,343.3 L70.0,315.0 L125.0,315.0 L180.0,315.0 L235.0,315.0 L290.0,315.0 L290.0,286.7 L290.0,258.3 L290.0,230.0 L290.0,201.7 L345.0,201.7 L400.0,201.7 L400.0,173.3 L400.0,145.0 L400.0,116.7 L455.0,116.7 L510.0,116.7 L565.0,116.7 L565.0,88.3 L620.0,60.0 L675.0,60.0 L730.0,60.0" fill="none" stroke="#3aa655" stroke-width="2.5"/>
+<text x="746" y="149" font-size="11" fill="#3aa655">v4adapt spa (AUC 0.64)</text>
 <path d="M70.0,400.0 L125.0,400.0 L125.0,371.7 L180.0,343.3 L180.0,315.0 L180.0,286.7 L235.0,286.7 L290.0,286.7 L290.0,258.3 L290.0,230.0 L345.0,230.0 L400.0,201.7 L455.0,201.7 L510.0,201.7 L510.0,173.3 L565.0,173.3 L565.0,145.0 L620.0,145.0 L675.0,116.7 L675.0,88.3 L730.0,88.3 L730.0,60.0" fill="none" stroke="#20808c" stroke-width="2.5"/>
 <text x="746" y="172" font-size="11" fill="#20808c">v4greedy rs (AUC 0.51)</text>
 <path d="M70.0,400.0 L70.0,371.7 L70.0,343.3 L125.0,343.3 L125.0,315.0 L180.0,315.0 L180.0,286.7 L180.0,258.3 L235.0,258.3 L290.0,258.3 L290.0,230.0 L345.0,230.0 L400.0,230.0 L400.0,201.7 L400.0,173.3 L400.0,145.0 L400.0,116.7 L400.0,88.3 L455.0,88.3 L510.0,88.3 L565.0,88.3 L620.0,88.3 L675.0,88.3 L675.0,60.0 L730.0,60.0" fill="none" stroke="#20808c" stroke-width="2.5"/>
 <text x="746" y="195" font-size="11" fill="#20808c">v4greedy spa (AUC 0.65)</text>
-<text x="70" y="488" font-size="11" fill="#6b7690">solid=v4 (AEAD+adaptive) · dashed=v3 (CTR+LSB replacement)</text>
+<text x="70" y="488" font-size="11" fill="#8b949e">solid=v4 (AEAD+adaptive) · dashed=v3 (CTR+LSB replacement)</text>
 </svg>

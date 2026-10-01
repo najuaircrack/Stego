@@ -369,8 +369,9 @@ def _svg_open(w, h, title):
     return ['<svg xmlns="http://www.w3.org/2000/svg" width="%d" height="%d" '
             'viewBox="0 0 %d %d" font-family="ui-monospace, Consolas, monospace">'
             % (w, h, w, h),
+            '<rect x="0" y="0" width="%d" height="%d" fill="#0d1117"/>' % (w, h),
             '<text x="20" y="30" font-size="19" font-weight="bold" '
-            'fill="#1a2233">%s</text>' % title]
+            'fill="#ffffff">%s</text>' % title]
 
 
 def svg_bars(path, title, groups, series, values, note):
@@ -380,14 +381,14 @@ def svg_bars(path, title, groups, series, values, note):
     L = {'l': 70, 'r': 20, 't': 70, 'b': 90}
     pw, ph = W - L['l'] - L['r'], H - L['t'] - L['b']
     out = _svg_open(W, H, title)
-    out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#3a4763" '
+    out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#8b949e" '
                'stroke-width="2"/>' % (L['l'], L['t'] + ph, L['l'] + pw,
                                        L['t'] + ph))
     for q in (0.0, 0.25, 0.5, 0.75, 1.0):
         y = L['t'] + ph * (1 - q)
-        out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#d4d9e2"/>'
+        out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#21262d"/>'
                    % (L['l'], y, L['l'] + pw, y))
-        out.append('<text x="%d" y="%d" font-size="11" fill="#6b7690" '
+        out.append('<text x="%d" y="%d" font-size="11" fill="#8b949e" '
                    'text-anchor="end">%.2f</text>' % (L['l'] - 8, y + 4, q))
     gw = pw / len(groups)
     bw = min(44, (gw - 30) / len(series))
@@ -399,19 +400,19 @@ def svg_bars(path, title, groups, series, values, note):
             y = L['t'] + ph - bh
             out.append('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" '
                        'fill="%s"/>' % (x, y, bw - 3, bh, cols[si % 4]))
-            out.append('<text x="%.1f" y="%.1f" font-size="10" fill="#1a2233" '
+            out.append('<text x="%.1f" y="%.1f" font-size="10" fill="#ffffff" '
                        'text-anchor="middle">%.2f</text>'
                        % (x + (bw - 3) / 2, y - 5, v))
-        out.append('<text x="%.1f" y="%d" font-size="12" fill="#1a2233" '
+        out.append('<text x="%.1f" y="%d" font-size="12" fill="#ffffff" '
                    'text-anchor="middle">%s</text>'
                    % (L['l'] + gi * gw + gw / 2, L['t'] + ph + 22, g))
     for si, s in enumerate(series):
         x = L['l'] + si * 130
         out.append('<rect x="%d" y="%d" width="14" height="14" fill="%s"/>'
                    % (x, H - 48, cols[si % 4]))
-        out.append('<text x="%d" y="%d" font-size="12" fill="#1a2233">%s</text>'
+        out.append('<text x="%d" y="%d" font-size="12" fill="#ffffff">%s</text>'
                    % (x + 20, H - 36, s))
-    out.append('<text x="%d" y="%d" font-size="11" fill="#6b7690">%s</text>'
+    out.append('<text x="%d" y="%d" font-size="11" fill="#8b949e">%s</text>'
                % (L['l'], H - 12, note))
     out.append('</svg>')
     open(path, 'w', encoding='utf-8').write('\n'.join(out))
@@ -423,15 +424,15 @@ def svg_roc(path, title, curves, note):
     L = {'l': 70, 'r': 230, 't': 60, 'b': 100}
     pw, ph = W - L['l'] - L['r'], H - L['t'] - L['b']
     out = _svg_open(W, H, title)
-    out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#3a4763" '
+    out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#8b949e" '
                'stroke-width="2"/>' % (L['l'], L['t'] + ph, L['l'] + pw,
                                        L['t'] + ph))
-    out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#3a4763" '
+    out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#8b949e" '
                'stroke-width="2"/>' % (L['l'], L['t'], L['l'], L['t'] + ph))
-    out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#c0c6d2" '
+    out.append('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="#4b5871" '
                'stroke-dasharray="6,5"/>' % (L['l'], L['t'] + ph,
                                              L['l'] + pw, L['t']))
-    out.append('<text x="%d" y="%d" font-size="11" fill="#6b7690" '
+    out.append('<text x="%d" y="%d" font-size="11" fill="#8b949e" '
                'text-anchor="middle">false positive rate →</text>'
                % (L['l'] + pw / 2, L['t'] + ph + 34))
     for ci, (label, pts, color, dash) in enumerate(curves):
@@ -442,7 +443,7 @@ def svg_roc(path, title, curves, note):
                    % (d, color, dashs))
         out.append('<text x="%d" y="%d" font-size="11" fill="%s">%s</text>'
                    % (L['l'] + pw + 16, L['t'] + 20 + ci * 23, color, label))
-    out.append('<text x="%d" y="%d" font-size="11" fill="#6b7690">%s</text>'
+    out.append('<text x="%d" y="%d" font-size="11" fill="#8b949e">%s</text>'
                % (L['l'], H - 12, note))
     out.append('</svg>')
     open(path, 'w', encoding='utf-8').write('\n'.join(out))
@@ -574,7 +575,7 @@ def main():
 
     # ROC colors: v4 solid green family, v3 dashed blue family
     palette = {'v3seq': '#3f7fbf', 'v3scatter': '#7a5fd0',
-               'v4adapt': '#2e9e5b', 'v4greedy': '#20808c',
+               'v4adapt': '#3aa655', 'v4greedy': '#20808c',
                'v4nonadapt': '#c98a2b'}
     styled = []
     for label, pts, dashed in roc_curves:

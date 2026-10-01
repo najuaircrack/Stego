@@ -7,7 +7,9 @@ cost math from python/stegolib.py (imported, not duplicated).
 
 Outputs:
   cost_buckets.png      bucket map (8 colors; wet pixels dark) + legend
+                        chips with white bucket/count labels
   selection_overlay.png dimmed cover + selected pixels for a 32 KiB payload
+                        + white caption strip
 
 Run:  python docs/figures/gen_figures.py   (from the repo root)
 """
@@ -18,7 +20,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)),
                                 '..', '..', 'python'))
 import stegolib as S
-from PIL import Image
+from PIL import Image, ImageDraw, ImageFont
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 W, H = 512, 512
@@ -62,6 +64,10 @@ def synthetic_cover():
                 i = (y * W + x) * 3
                 px[i], px[i + 1], px[i + 2] = 225, 220, 210
     return px
+
+
+def _white(dr, x, y, s):
+    dr.text((x, y), s, font=ImageFont.load_default(), fill=(255, 255, 255))
 
 
 def main():

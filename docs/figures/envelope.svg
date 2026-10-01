@@ -1,10 +1,11 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="360" viewBox="0 0 960 360" font-family="ui-monospace, Consolas, monospace">
+  <rect x="0" y="0" width="960" height="360" fill="#0d1117"/>
   <style>
-    .t { font-size: 20px; font-weight: bold; fill: #1a2233; }
-    .s { font-size: 13px; font-weight: bold; fill: #1a2233; }
+    .t { font-size: 20px; font-weight: bold; fill: #ffffff; }
+    .s { font-size: 13px; font-weight: bold; fill: #ffffff; }
     .f { font-size: 11px; fill: #ffffff; }
-    .fd { font-size: 11px; fill: #3a4763; }
-    .n { font-size: 10px; fill: #6b7690; }
+    .fd { font-size: 11px; fill: #c9d1d9; }
+    .n { font-size: 10px; fill: #8b949e; }
   </style>
   <text x="24" y="34" class="t">STG2 envelope headers (to scale, 14 px / byte)</text>
 
@@ -17,7 +18,7 @@
     <rect x="112" width="56" height="34" fill="#3f7fbf"/><text x="140" y="21" text-anchor="middle" class="f">seed</text>
     <rect x="168" width="56" height="34" fill="#3f7fbf"/><text x="196" y="21" text-anchor="middle" class="f">orig</text>
     <rect x="224" width="56" height="34" fill="#3f7fbf"/><text x="252" y="21" text-anchor="middle" class="f">comp</text>
-    <rect x="280" width="56" height="34" fill="#9aa3b2"/><text x="308" y="21" text-anchor="middle" class="f">rsv</text>
+    <rect x="280" width="56" height="34" fill="#66707f"/><text x="308" y="21" text-anchor="middle" class="f">rsv</text>
     <rect x="336" width="224" height="34" fill="#3aa655"/><text x="448" y="21" text-anchor="middle" class="f">salt 16</text>
     <rect x="560" width="56" height="34" fill="#c98a2b"/><text x="588" y="21" text-anchor="middle" class="f">crc</text>
     <text x="0" y="52" class="n">0</text><text x="608" y="52" text-anchor="end" class="n">44</text>
@@ -35,9 +36,9 @@
     <rect x="224" width="56" height="34" fill="#3f7fbf"/><text x="252" y="21" text-anchor="middle" class="f">comp</text>
     <rect x="280" width="56" height="34" fill="#7c5cd6"/><text x="308" y="21" text-anchor="middle" class="f">Q</text>
     <rect x="336" width="224" height="34" fill="#3aa655"/><text x="448" y="21" text-anchor="middle" class="f">salt 16</text>
-    <rect x="560" width="56" height="34" fill="#9aa3b2"/><text x="588" y="21" text-anchor="middle" class="f">rsv</text>
+    <rect x="560" width="56" height="34" fill="#66707f"/><text x="588" y="21" text-anchor="middle" class="f">rsv</text>
     <rect x="616" width="56" height="34" fill="#c98a2b"/><text x="644" y="21" text-anchor="middle" class="f">crc</text>
-    <rect x="672" width="224" height="34" fill="#9aa3b2"/><text x="784" y="21" text-anchor="middle" class="f">reserved2 16</text>
+    <rect x="672" width="224" height="34" fill="#66707f"/><text x="784" y="21" text-anchor="middle" class="f">reserved2 16</text>
     <text x="0" y="52" class="n">0</text><text x="888" y="52" text-anchor="end" class="n">64</text>
   </g>
   <text x="24" y="294" class="fd">body: ChaCha20-Poly1305(crc32 ‖ payload), full header as AAD · ternary ±1 · cost-ordered (ADAPTIVE)</text>
@@ -49,6 +50,6 @@
     <rect x="200" y="-11" width="14" height="14" fill="#3aa655"/><text x="219" y="0" class="fd">salt (KDF)</text>
     <rect x="320" y="-11" width="14" height="14" fill="#c98a2b"/><text x="339" y="0" class="fd">integrity</text>
     <rect x="430" y="-11" width="14" height="14" fill="#7c5cd6"/><text x="449" y="0" class="fd">v4 only (Q)</text>
-    <rect x="560" y="-11" width="14" height="14" fill="#9aa3b2"/><text x="579" y="0" class="fd">reserved</text>
+    <rect x="560" y="-11" width="14" height="14" fill="#66707f"/><text x="579" y="0" class="fd">reserved</text>
   </g>
 </svg>

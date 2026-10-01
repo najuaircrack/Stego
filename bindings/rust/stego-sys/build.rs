@@ -7,6 +7,9 @@ fn main() {
         .std("c++17")
         .file(base.join("src/sha256.cpp"))
         .file(base.join("src/codec.cpp"))
+        .file(base.join("src/aead.cpp"))
+        .file(base.join("src/argon2.cpp"))
+        .file(base.join("src/rs.cpp"))
         .file(base.join("src/api.cpp"))
         .include(base.join("include"))
         .compile("stego");
@@ -16,5 +19,8 @@ fn main() {
     println!("cargo:rerun-if-changed=../../include/stego/format.h");
     println!("cargo:rerun-if-changed=../../src/sha256.cpp");
     println!("cargo:rerun-if-changed=../../src/codec.cpp");
+    println!("cargo:rerun-if-changed=../../src/aead.cpp");
+    println!("cargo:rerun-if-changed=../../src/argon2.cpp");
+    println!("cargo:rerun-if-changed=../../src/rs.cpp");
     println!("cargo:rerun-if-changed=../../src/api.cpp");
 }
