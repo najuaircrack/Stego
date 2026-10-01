@@ -113,6 +113,21 @@ jobs:
           cmake --build build-linux &&
           ctest --test-dir build-linux --output-on-failure
 
+  linux-sanitize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Configure + Build + Test (ASan/UBSan, incl. malformed battery)
+        run: >
+          cmake -S . -B build-san
+          -DSTEGO_BUILD_TESTS=ON -DSTEGO_SANITIZE=ON &&
+          cmake --build build-san &&
+          ctest --test-dir build-san --output-on-failure
+
   python:
     runs-on: ubuntu-latest
     timeout-minutes: 15

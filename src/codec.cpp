@@ -104,33 +104,67 @@ int GetBit(const std::vector<uint8_t>& rgb, uint32_t w,
     return rgb[(y * w + x) * 3 + (k % 3)] & 1;
 }
 
-// --- v4 adaptive placement (FORMAT.md §2.4): green-channel costs,
-// R/B slots. Green is never written, so decode-side costs are bit-exact.
+// --- v4 adaptive placement (FORMAT.md §2.4): S-UNIWARD-style wavelet
+// costs over GREEN, R/B slots. Green is never written, so decode-side
+// costs are bit-exact. All math is integer with portable floor division
+// (never >> on negatives) to match the Python port bit-for-bit.
 
-static uint32_t ClampDim(int v, uint32_t lim) {
-    if (v < 0) return 0;
-    if ((uint32_t)v >= lim) return lim - 1;
-    return (uint32_t)v;
+static int32_t MirrorIdx(int i, int n) {
+    while (i < 0 || i >= n) {
+        if (i < 0)
+            i = -i;
+        else
+            i = 2 * (n - 1) - i;
+    }
+    return i;
 }
 
-// 3x3 green variance at every pixel (mirror edges), exact integer math:
-// cost = (9*sumSq - sum*sum) / 81. Max ~5.3M: fits uint32, never underflows.
+static int32_t FDiv2(int32_t v) { return v >= 0 ? v / 2 : -((-v + 1) / 2); }
+static int32_t FDiv4(int32_t v) { return v >= 0 ? v / 4 : -((-v + 3) / 4); }
+
+// In-place integer 5/3 lifting on one row/column (symmetric extension).
+// Predict odds from ORIGINAL evens, then update evens from predicted odds.
+static void Dwt53Row(int32_t* x, int n) {
+    for (int i = 1; i < n; i += 2) {
+        int32_t l = x[MirrorIdx(i - 1, n)], r = x[MirrorIdx(i + 1, n)];
+        x[i] = x[i] - FDiv2(l + r);
+    }
+    for (int i = 0; i < n; i += 2) {
+        int32_t l = x[MirrorIdx(i - 1, n)], r = x[MirrorIdx(i + 1, n)];
+        x[i] = x[i] + FDiv4(l + r + 2);
+    }
+}
+
 void CostMapGreen(const std::vector<uint8_t>& rgb, uint32_t w, uint32_t h,
                   std::vector<uint32_t>& cost) {
+    std::vector<int32_t> t((size_t)w * h);
+    for (size_t i = 0; i < t.size(); i++) t[i] = (int32_t)rgb[i * 3 + 1];
+    std::vector<int32_t> line(w > h ? w : h);
+    for (uint32_t y = 0; y < h; y++) {
+        for (uint32_t x = 0; x < w; x++) line[x] = t[(size_t)y * w + x];
+        Dwt53Row(line.data(), (int)w);
+        for (uint32_t x = 0; x < w; x++) t[(size_t)y * w + x] = line[x];
+    }
+    for (uint32_t x = 0; x < w; x++) {
+        for (uint32_t y = 0; y < h; y++) line[y] = t[(size_t)y * w + x];
+        Dwt53Row(line.data(), (int)h);
+        for (uint32_t y = 0; y < h; y++) t[(size_t)y * w + x] = line[y];
+    }
+    // Magnitude map (LL zeroed: even row + even col), then 3x3 sums.
     cost.assign((size_t)w * h, 0);
     for (uint32_t y = 0; y < h; y++) {
         for (uint32_t x = 0; x < w; x++) {
-            uint32_t s = 0, q = 0;
+            uint32_t s = 0;
             for (int dy = -1; dy <= 1; dy++) {
-                uint32_t yy = ClampDim((int)y + dy, h);
+                uint32_t yy = (uint32_t)MirrorIdx((int)y + dy, (int)h);
                 for (int dx = -1; dx <= 1; dx++) {
-                    uint32_t xx = ClampDim((int)x + dx, w);
-                    uint32_t v = rgb[((size_t)yy * w + xx) * 3 + 1];
-                    s += v;
-                    q += v * v;
+                    uint32_t xx = (uint32_t)MirrorIdx((int)x + dx, (int)w);
+                    int32_t c = t[(size_t)yy * w + xx];
+                    if (xx % 2 == 1 || yy % 2 == 1)
+                        s += (uint32_t)(c < 0 ? -c : c);
                 }
             }
-            cost[(size_t)y * w + x] = (9 * q - s * s) / 81;
+            cost[(size_t)y * w + x] = s;
         }
     }
 }
@@ -150,6 +184,12 @@ uint32_t CostBucket(uint32_t cost, uint32_t q) {
     return b >= q ? q - 1 : (uint32_t)b;
 }
 
+void OrderCostsV4(const std::vector<uint8_t>& rgb, uint32_t w, uint32_t h,
+                  uint32_t seed, uint32_t q, bool adaptive,
+                  std::vector<uint32_t>& order, std::vector<uint8_t>& costs);
+static size_t SlotChannel(const std::vector<uint32_t>& order, size_t s);
+static int DirBit(uint64_t seed64, size_t s);
+
 std::vector<uint32_t> CandidateOrderV4(const std::vector<uint8_t>& rgb,
                                        uint32_t w, uint32_t h, uint32_t seed,
                                        uint32_t q, bool adaptive) {
@@ -157,15 +197,35 @@ std::vector<uint32_t> CandidateOrderV4(const std::vector<uint8_t>& rgb,
     if (!adaptive)
         return PlacementRange(STEGO_V4_HEADER_PX, nPx - STEGO_V4_HEADER_PX,
                               seed);
-    std::vector<uint32_t> cost;
-    CostMapGreen(rgb, w, h, cost);
+    std::vector<uint32_t> order;
+    std::vector<uint8_t> costs;
+    OrderCostsV4(rgb, w, h, seed, q, adaptive, order, costs);
+    return order;
+}
+
+// Order + per-position flip costs (Q - bucket; uniform 1 when flat).
+// Single source for greedy and STC paths.
+void OrderCostsV4(const std::vector<uint8_t>& rgb, uint32_t w, uint32_t h,
+                  uint32_t seed, uint32_t q, bool adaptive,
+                  std::vector<uint32_t>& order, std::vector<uint8_t>& costs) {
+    uint32_t nPx = w * h;
+    if (!adaptive) {
+        order = PlacementRange(STEGO_V4_HEADER_PX, nPx - STEGO_V4_HEADER_PX,
+                               seed);
+        costs.assign(order.size(), 1);
+        return;
+    }
+    std::vector<uint32_t> cmap;
+    CostMapGreen(rgb, w, h, cmap);
     std::vector<uint32_t> members[16];
     for (uint32_t i = STEGO_V4_HEADER_PX; i < nPx; i++) {
-        uint32_t b = CostBucket(cost[i], q);
+        uint32_t b = CostBucket(cmap[i], q);
         if (b < 16) members[b].push_back(i);
     }
-    std::vector<uint32_t> order;
+    order.clear();
+    costs.clear();
     order.reserve(nPx);
+    costs.reserve(nPx);
     for (int b = 15; b >= 0; b--) {
         if (members[b].empty()) continue;
         std::vector<uint32_t>& m = members[b];
@@ -177,9 +237,108 @@ std::vector<uint32_t> CandidateOrderV4(const std::vector<uint8_t>& rgb,
             m[i] = m[j];
             m[j] = t;
         }
+        uint8_t c = (uint8_t)(q - (uint32_t)b);
         order.insert(order.end(), m.begin(), m.end());
+        costs.insert(costs.end(), m.size(), c ? c : 1);
     }
-    return order;
+}
+
+// --- Syndrome-trellis coding (FORMAT.md §2.4b): Viterbi over 2^7 states,
+// integer metrics. Submatrix S[0]=1, S[1..7] from Xor128 keystream.
+
+void StcSubmatrix(uint32_t seed, uint8_t sub[8]) {
+    Xor128 r((uint64_t)seed ^ 0x535443ull);
+    sub[0] = 1;
+    for (int k = 1; k < 8; k++) sub[k] = (uint8_t)(r.Next() & 1);
+}
+
+bool StcEncode(const uint8_t* cover, const uint8_t* costs, size_t n,
+               const uint8_t* msg, size_t msgLen, const uint8_t sub[8],
+               uint8_t* flips) {
+    const size_t M = msgLen * 8;
+    if (n < M + 7) return false;
+    // Cf[s][f]: flip-dependent syndrome part.
+    uint8_t cf[128][2];
+    for (int s = 0; s < 128; s++) {
+        for (int f = 0; f < 2; f++) {
+            uint8_t v = 0;
+            for (int k = 0; k < 7; k++)
+                if (sub[k] && (s >> k) & 1) v ^= 1;
+            if (sub[7] && f) v ^= 1;
+            cf[s][f] = v;
+        }
+    }
+    // Cover syndrome per message position.
+    std::vector<uint8_t> cx(M);
+    for (size_t j = 0; j < M; j++) {
+        uint8_t v = 0;
+        for (int k = 0; k < 8; k++)
+            if (sub[k] && cover[j + k]) v ^= 1;
+        cx[j] = v;
+    }
+    uint8_t msgBit = 0;
+    const uint64_t INF = (uint64_t)1 << 62;
+    uint64_t cur[128], nxt[128];
+    for (int s = 0; s < 128; s++) cur[s] = INF;
+    cur[0] = 0;
+    std::vector<uint8_t> prev(n * 128, 0);
+    for (size_t i = 0; i < n; i++) {
+        for (int s = 0; s < 128; s++) nxt[s] = INF;
+        for (int s = 0; s < 128; s++) {
+            if (cur[s] >= INF) continue;
+            for (int f = 0; f < 2; f++) {
+                if (i >= 7) {
+                    size_t j = i - 7;
+                    if (j >= M) continue;
+                    msgBit = (uint8_t)((msg[j / 8] >> (j % 8)) & 1);
+                    if ((uint8_t)(cx[j] ^ cf[s][f]) != msgBit) continue;
+                }
+                int ns = ((s >> 1) | (f << 6)) & 127;
+                uint64_t nm = cur[s] + (f ? costs[i] : 0);
+                if (nm < nxt[ns]) {
+                    nxt[ns] = nm;
+                    prev[i * 128 + ns] = (uint8_t)s;
+                }
+            }
+        }
+        memcpy(cur, nxt, sizeof(cur));
+    }
+    int best = 0;
+    for (int s = 1; s < 128; s++)
+        if (cur[s] < cur[best]) best = s;
+    if (cur[best] >= INF) return false;
+    int s = best;
+    for (size_t i = n; i-- > 0;) {
+        flips[i] = (uint8_t)((s >> 6) & 1);
+        s = prev[i * 128 + s];
+    }
+    return true;
+}
+
+void StcExtract(const uint8_t* y, size_t mBits, const uint8_t sub[8],
+                uint8_t* msg, size_t msgLen) {
+    memset(msg, 0, msgLen);
+    for (size_t j = 0; j < mBits; j++) {
+        uint8_t v = 0;
+        for (int k = 0; k < 8; k++)
+            if (sub[k] && y[j + k]) v ^= 1;
+        if (v) msg[j / 8] |= (uint8_t)(1 << (j % 8));
+    }
+}
+
+void ApplyFlipsV4(std::vector<uint8_t>& rgb, const std::vector<uint32_t>& order,
+                   const uint8_t* flips, size_t n, uint64_t seed64,
+                   size_t slotBase) {
+    for (size_t s = 0; s < n; s++) {
+        if (!flips[s]) continue;
+        uint8_t& ch = rgb[SlotChannel(order, s)];
+        if (ch == 0)
+            ch = 1;
+        else if (ch == 255)
+            ch = 254;
+        else
+            ch = (uint8_t)(ch + (DirBit(seed64, slotBase + s) ? 1 : -1));
+    }
 }
 
 // R/B slot map: slot s -> flat channel index (green never touched).
@@ -198,46 +357,35 @@ static int DirBit(uint64_t seed64, size_t s) {
 }
 
 bool EmbedV4(std::vector<uint8_t>& rgb, const std::vector<uint32_t>& order,
-             const uint8_t* src, size_t srcLen, bool robust, uint64_t seed64,
+             const uint8_t* src, size_t srcLen, uint64_t seed64,
              size_t slotBase) {
-    size_t need = srcLen * 8 * (robust ? 3 : 1);
+    size_t need = srcLen * 8;
     if (need > order.size() * 2) return false;
     size_t slots = 0;
     for (size_t bi = 0; bi < srcLen * 8; bi++) {
         int b = (src[bi / 8] >> (bi % 8)) & 1;
-        size_t rep = robust ? 3 : 1;
-        for (size_t k = 0; k < rep; k++) {
-            uint8_t& ch = rgb[SlotChannel(order, slots)];
-            if ((ch & 1) != b) {
-                if (ch == 0)
-                    ch = 1;
-                else if (ch == 255)
-                    ch = 254;
-                else
-                    ch = (uint8_t)(ch + (DirBit(seed64, slotBase + slots) ? 1 : -1));
-            }
-            slots++;
+        uint8_t& ch = rgb[SlotChannel(order, slots)];
+        if ((ch & 1) != b) {
+            if (ch == 0)
+                ch = 1;
+            else if (ch == 255)
+                ch = 254;
+            else
+                ch = (uint8_t)(ch + (DirBit(seed64, slotBase + slots) ? 1 : -1));
         }
+        slots++;
     }
     return true;
 }
 
 bool ReadV4(const std::vector<uint8_t>& rgb, const std::vector<uint32_t>& order,
-            size_t nBytes, bool robust, std::vector<uint8_t>& out) {
-    size_t need = nBytes * 8 * (robust ? 3 : 1);
+            size_t nBytes, std::vector<uint8_t>& out) {
+    size_t need = nBytes * 8;
     if (need > order.size() * 2) return false;
     out.assign(nBytes, 0);
     for (size_t bi = 0; bi < nBytes * 8; bi++) {
-        int b;
-        if (robust) {
-            int votes = 0;
-            for (int k = 0; k < 3; k++)
-                votes += rgb[SlotChannel(order, 3 * bi + (size_t)k)] & 1;
-            b = votes >= 2 ? 1 : 0;  // ties -> 0
-        } else {
-            b = rgb[SlotChannel(order, bi)] & 1;
-        }
-        if (b) out[bi / 8] |= (uint8_t)(1 << (bi % 8));
+        if (rgb[SlotChannel(order, bi)] & 1)
+            out[bi / 8] |= (uint8_t)(1 << (bi % 8));
     }
     return true;
 }

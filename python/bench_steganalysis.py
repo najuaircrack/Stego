@@ -39,10 +39,16 @@ METHODS = [
         px, w, h, p, seed=0, password=PASSWORD, do_auth=True)),
     ('v3scatter', lambda px, w, h, p: S.encode_image(
         px, w, h, p, seed=7, password=PASSWORD, do_auth=True)),
+    # KDF is orthogonal to distortion (fresh random salt per embed either
+    # way): benchmarks pin PBKDF2 for speed; Argon2id interop is proven
+    # by vectors + cross tests, production params by C++ self-tests.
     ('v4adapt', lambda px, w, h, p: S.encode_image_v4(
-        px, w, h, p, PASSWORD, seed=7, adaptive=True)),
+        px, w, h, p, PASSWORD, seed=7, adaptive=True, kdf='pbkdf2')),
+    ('v4greedy', lambda px, w, h, p: S.encode_image_v4(
+        px, w, h, p, PASSWORD, seed=7, adaptive=True, kdf='pbkdf2',
+        stc=False)),
     ('v4nonadapt', lambda px, w, h, p: S.encode_image_v4(
-        px, w, h, p, PASSWORD, seed=0, adaptive=False)),
+        px, w, h, p, PASSWORD, seed=0, adaptive=False, kdf='pbkdf2')),
 ]
 
 
@@ -187,6 +193,26 @@ def det_smooth(px, w, h):
     return float(np.mean((arr[:, 1:, :] & 1) == (arr[:, :-1, :] & 1)))
 
 
+def spam_features(px, w, h, T=3):
+    """SPAM686-style second-order co-occurrences (T=3) on luminance:
+    horizontal + vertical, 343 bins each. Pure evaluation feature
+    (never used by the embedder)."""
+    arr = np.asarray(px, dtype=np.int32).reshape(h, w, 3)
+    y = (299 * arr[:, :, 0] + 587 * arr[:, :, 1] + 114 * arr[:, :, 2]) // 1000
+    out = []
+    for axis in (1, 0):
+        d = np.diff(y, axis=axis)
+        d = np.clip(d, -T, T) + T  # 0..6
+        if axis == 1:
+            trips = d[:, :-2] * 49 + d[:, 1:-1] * 7 + d[:, 2:]
+        else:
+            trips = d[:-2, :] * 49 + d[1:-1, :] * 7 + d[2:, :]
+        hist, _ = np.histogram(trips, bins=343, range=(0, 343))
+        s = hist.sum()
+        out += (hist / s).tolist() if s else [0.0] * 343
+    return out
+
+
 DETECTORS = [('chi2', lambda px, w, h: det_chi2(px)),
              ('rs', det_rs),
              ('spa', det_spa),
@@ -294,6 +320,45 @@ def cv_probe_auc(feats_clean, feats_stego):
     return sum(aucs) / len(aucs) if aucs else 0.5
 
 
+def train_probe_np(X, y, iters=400, lr=0.5, l2=1.0):
+    # Numpy-vectorized logistic regression (for high-dim SPAM features).
+    Xn = np.asarray(X, dtype=np.float64)
+    yn = np.asarray(y, dtype=np.float64)
+    mu = Xn.mean(axis=0)
+    sd = Xn.std(axis=0)
+    sd[sd == 0] = 1.0
+    Z = (Xn - mu) / sd
+    w = np.zeros(Z.shape[1])
+    b = 0.0
+    n = len(X)
+    for _ in range(iters):
+        z = Z.dot(w) + b
+        p = 1.0 / (1.0 + np.exp(-np.clip(z, -50.0, 50.0)))
+        e = p - yn
+        w -= lr * (Z.T.dot(e) / n + l2 * w)
+        b -= lr * e.mean()
+    def score(r):
+        z = float(np.dot((np.asarray(r) - mu) / sd, w) + b)
+        return 1.0 / (1.0 + math.exp(-max(-50.0, min(50.0, z))))
+    return score
+
+
+def cv_probe_auc_np(feats_clean, feats_stego):
+    X = feats_clean + feats_stego
+    y = [0] * len(feats_clean) + [1] * len(feats_stego)
+    idx = list(range(len(X)))
+    aucs = []
+    for fold in range(5):
+        te = [i for i in idx if i % 5 == fold]
+        tr = [i for i in idx if i % 5 != fold]
+        sc = train_probe_np([X[i] for i in tr], [y[i] for i in tr])
+        s1 = [sc(X[i]) for i in te if y[i] == 1]
+        s0 = [sc(X[i]) for i in te if y[i] == 0]
+        if s1 and s0:
+            aucs.append(auc(s1, s0))
+    return sum(aucs) / len(aucs) if aucs else 0.5
+
+
 # ---------------------------------------------------------------- SVG
 
 def _svg_open(w, h, title):
@@ -381,14 +446,49 @@ def svg_roc(path, title, curves, note):
 
 # ---------------------------------------------------------------- main
 
+def load_covers(corpus_dir, n, w=COVER_W, h=COVER_H):
+    # Natural corpus: PNGs (any size), center-cropped. Falls back to the
+    # deterministic synthetic family when no directory is given.
+    if not corpus_dir:
+        return [synthetic_cover(101 + i, w, h) for i in range(n)], 'synthetic'
+    files = sorted(f for f in os.listdir(corpus_dir)
+                   if f.lower().endswith('.png'))
+    if not files:
+        raise SystemExit('no PNGs in --covers dir')
+    covers = []
+    for fn in files[:n]:
+        im = Image.open(os.path.join(corpus_dir, fn)).convert('RGB')
+        iw, ih = im.size
+        if iw < w or ih < h:
+            continue
+        x0, y0 = (iw - w) // 2, (ih - h) // 2
+        im = im.crop((x0, y0, x0 + w, y0 + h))
+        flat = []
+        for r, g, b in im.getdata():
+            flat += [r, g, b]
+        covers.append(flat)
+    if not covers:
+        raise SystemExit('no usable PNGs (>=256px) in --covers dir')
+    return covers, 'natural(%d)' % len(covers)
+
+
 def main():
-    covers = [synthetic_cover(101 + i) for i in range(N_COVERS)]
+    import argparse
+    ap = argparse.ArgumentParser(description='classical-detector benchmark')
+    ap.add_argument('--covers', default='',
+                    help='directory of PNG covers (else synthetic family)')
+    ap.add_argument('--n-covers', type=int, default=N_COVERS)
+    a = ap.parse_args()
+    covers, cover_kind = load_covers(a.covers, a.n_covers)
+    n_cov = len(covers)
     clean_scores = {name: [] for name, _ in DETECTORS}
     clean_feats = []
+    clean_spam = []
     for px in covers:
         for name, fn in DETECTORS:
             clean_scores[name].append(fn(px, COVER_W, COVER_H))
         clean_feats.append([fn(px, COVER_W, COVER_H) for _, fn in DETECTORS])
+        clean_spam.append(spam_features(px, COVER_W, COVER_H))
 
     # sanity: every detector must see synthetic 100%-randomized LSBs
     orientations, broken = {}, []
@@ -410,7 +510,8 @@ def main():
     def oriented(name, v):
         return orientations[name] * v
 
-    results = {'covers': N_COVERS, 'dims': [COVER_W, COVER_H],
+    results = {'covers': n_cov,
+               'cover_kind': cover_kind, 'dims': [COVER_W, COVER_H],
                'password': '(fixed bench password)', 'methods': {},
                'sanity': {n: {'dir': orientations.get(n, 0)} for n, _ in DETECTORS}}
     roc_curves = []
@@ -418,11 +519,12 @@ def main():
         payload = PAYLOAD[:plen]
         bpp = plen * 8 / (COVER_W * COVER_H)
         for mname, mfn in METHODS:
-            stego, feats, psnrs, chfrac = [], [], [], []
+            stego, feats, psnrs, chfrac, spams = [], [], [], [], []
             for px in covers:
                 e = mfn(list(px), COVER_W, COVER_H, payload)
                 stego.append(e)
                 feats.append([fn(e, COVER_W, COVER_H) for _, fn in DETECTORS])
+                spams.append(spam_features(e, COVER_W, COVER_H))
                 psnrs.append(psnr(px, e))
                 chfrac.append(sum(1 for a, b in zip(px, e) if a != b) /
                               len(px))
@@ -442,7 +544,9 @@ def main():
                     'auc': round(a, 3),
                     'det05': round(det_at_fpr(s1, s0), 3),
                     'stego_mean': round(sum(s1) / len(s1), 4)}
-                if blabel == BPPS[0][1]:
+                if blabel == BPPS[0][1] and mname in (
+                        'v3scatter', 'v4adapt', 'v4greedy') and \
+                        name in ('rs', 'spa'):
                     pts = roc_points(s1, s0)
                     roc_curves.append(
                         ('%s %s (AUC %.2f)' % (mname, name, a), pts,
@@ -452,39 +556,48 @@ def main():
             pa = cv_probe_auc([[f[i] for i in li] for f in clean_feats],
                               [[f[i] for i in li] for f in feats])
             entry['probe_auc'] = round(pa, 3)
+            # SPAM probe (686-dim second-order features, L2 logistic).
+            # Heavily overparameterized at this sample count by design:
+            # the CV gap is reported, not hidden.
+            spa = cv_probe_auc_np(clean_spam, spams)
+            entry['probe_spam_auc'] = round(spa, 3)
             results['methods'][key] = entry
             row = ' '.join('%s:%.2f' % (n, entry['detectors'][n].get('auc', -1))
                            for n, _ in DETECTORS if n not in broken)
-            print('%-16s psnr=%6.2f chg=%.3f probe=%.2f %s' %
+            print('%-16s psnr=%6.2f chg=%.3f probe=%.2f spam=%.2f %s' %
                   (key, entry['psnr_mean'], entry['changed_frac'],
-                   entry['probe_auc'], row))
+                   entry['probe_auc'], entry['probe_spam_auc'], row))
 
     # ROC colors: v4 solid green family, v3 dashed blue family
     palette = {'v3seq': '#3f7fbf', 'v3scatter': '#7a5fd0',
-               'v4adapt': '#2e9e5b', 'v4nonadapt': '#c98a2b'}
+               'v4adapt': '#2e9e5b', 'v4greedy': '#20808c',
+               'v4nonadapt': '#c98a2b'}
     styled = []
     for label, pts, dashed in roc_curves:
         m = label.split()[0]
         styled.append((label, pts, palette.get(m, '#333333'), dashed))
     svg_roc(os.path.join(FIGDIR, 'bench_roc.svg'),
-            'ROC — clean vs stego, %s, %d covers' % (BPPS[0][1], N_COVERS),
+            'ROC — clean vs stego, %s, %d %s covers' % (BPPS[0][1], n_cov, cover_kind),
             styled, 'solid=v4 (AEAD+adaptive) · dashed=v3 (CTR+LSB replacement)')
 
     # AUC bars per bpp
     for plen, blabel in BPPS:
         groups = [m for m, _ in METHODS]
-        series = [n for n, _ in DETECTORS if n not in broken] + ['probe']
+        series = [n for n, _ in DETECTORS if n not in broken] + \
+            ['probe', 'spam']
         values = {}
         for m, _ in METHODS:
             e = results['methods']['%s@%s' % (m, blabel)]
             values[m] = {n: e['detectors'][n].get('auc', 0) for n in series
-                         if n != 'probe'}
+                         if n not in ('probe', 'spam')}
             values[m]['probe'] = e['probe_auc']
+            values[m]['spam'] = e['probe_spam_auc']
         svg_bars(os.path.join(FIGDIR, 'bench_auc_%s.svg' % blabel.replace(
             '.', '')),
-            'Detector AUC (0.5 = blind) — %s, %d covers' % (blabel, N_COVERS),
+            'Detector AUC (0.5 = blind) — %s, %d %s covers' % (blabel, n_cov, cover_kind),
             groups, series, values,
-            'AUC: clean-vs-stego separation per detector · probe = 5-fold CV logistic')
+            'AUC per detector · probe = 4-feature CV logistic · '
+            'spam = SPAM686 CV logistic (overparameterized by design)')
     json.dump(results, open(os.path.join(FIGDIR, 'bench_v4.json'), 'w'),
               indent=1)
     print('wrote bench_v4.json + bench_auc_*.svg + bench_roc.svg')

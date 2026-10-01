@@ -2,10 +2,25 @@
 cmake_minimum_required(VERSION 3.20)
 project(stego VERSION 4.0.0 LANGUAGES C CXX)
 
+option(STEGO_SANITIZE "Sanitizer build (address; +undefined where supported)" OFF)
+if(STEGO_SANITIZE)
+    # Uniform application (before any target): mixed instrumented and
+    # plain objects refuse to link (annotate_* mismatch), by design.
+    if(MSVC)
+        add_compile_options(/fsanitize=address /Zi)
+        add_link_options(/fsanitize=address /DEBUG)
+    else()
+        add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+        add_link_options(-fsanitize=address,undefined)
+    endif()
+endif()
+
 add_library(stego STATIC
     src/sha256.cpp
     src/codec.cpp
     src/aead.cpp
+    src/argon2.cpp
+    src/rs.cpp
     src/api.cpp
 )
 
@@ -17,6 +32,7 @@ add_library(stego::stego ALIAS stego)
 
 option(STEGO_BUILD_TESTS "Build C++ self-tests + harness (dev/CI only)" OFF)
 option(STEGO_BUILD_EXAMPLES "Build C++ example templates (dev/CI only)" OFF)
+option(STEGO_FUZZ "Build libFuzzer decode harness (Clang only)" OFF)
 if(STEGO_BUILD_TESTS)
     enable_testing()
     add_executable(stego_test tests/test_codec.cpp)
@@ -29,6 +45,15 @@ if(STEGO_BUILD_TESTS)
     target_include_directories(stego_amalgam PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/single_include")
     target_include_directories(stego_amalgam PRIVATE single_include)
+endif()
+if(STEGO_FUZZ)
+    if(MSVC)
+        message(FATAL_ERROR "STEGO_FUZZ requires Clang (libFuzzer)")
+    endif()
+    add_executable(stego_fuzz tests/fuzz_decode.cpp)
+    target_link_libraries(stego_fuzz PRIVATE stego::stego)
+    target_compile_options(stego_fuzz PRIVATE -fsanitize=fuzzer,address)
+    target_link_options(stego_fuzz PRIVATE -fsanitize=fuzzer,address)
 endif()
 if(STEGO_BUILD_EXAMPLES)
     # GDI+ templates are Windows-only. extract.c is portable (raw RGB input).

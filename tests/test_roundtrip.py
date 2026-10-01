@@ -81,17 +81,21 @@ def test_placement_golden():
 
 
 def test_v4_roundtrips():
+    # Small Argon2id params (fast); production params covered by
+    # test_codec (C++) + envelope interop below. KDF choice is orthogonal
+    # to placement: distortion statistics don't depend on it.
     w, h = 64, 64
     msg = os.urandom(200)
+    kw = {'kdf': 'argon2id', 'argon2_m_kib': 32, 'argon2_time': 1}
     out = encode_image_v4(black(w, h), w, h, msg, 'pw4', seed=7,
-                          adaptive=True)
+                          adaptive=True, **kw)
     assert decode_image_v4(out, w, h, 'pw4') == msg
     assert decode_image_v4(out, w, h, 'wrong') is None
     out = encode_image_v4(black(w, h), w, h, msg, 'pw4', seed=0,
-                          adaptive=False)
+                          adaptive=False, **kw)
     assert decode_image_v4(out, w, h, 'pw4') == msg
     out = encode_image_v4(black(w, h), w, h, msg, 'pw4', seed=9,
-                          robust=True)
+                          robust=True, **kw)
     assert decode_image_v4(out, w, h, 'pw4') == msg
 
 
@@ -108,16 +112,25 @@ def test_v4_order_covers_once():
     assert sorted(order) == list(range(256, w * h))
     # green untouched by a full-capacity-ish embed
     msg = os.urandom(400)
-    out = encode_image_v4(flat, w, h, msg, 'pw4', seed=7)
+    out = encode_image_v4(flat, w, h, msg, 'pw4', seed=7,
+                          kdf='argon2id', argon2_m_kib=32, argon2_time=1)
     assert [out[i] for i in range(len(out)) if i % 3 == 1] == \
            [flat[i] for i in range(len(flat)) if i % 3 == 1]
 
 
 def test_cross_v4_pyenc_cdec(tmp_path):
+    # Textured cover: C++ must reproduce Python's cost/bucket/order
+    # exactly to decode (black covers would only exercise the shuffle).
     hx = _harness()
     w, h = 64, 64
     msg = os.urandom(200)
-    rgb = encode_image_v4(black(w, h), w, h, msg, 'xpw', seed=7)
+    flat = []
+    for y in range(h):
+        for x in range(w):
+            v = (x * 37 + y * 91) % 256
+            flat += [v, (v * 5 + 13) % 256, (v * 11 + 71) % 256]
+    rgb = encode_image_v4(flat, w, h, msg, 'xpw', seed=7,
+                          kdf='argon2id', argon2_m_kib=32, argon2_time=1)
     raw = tmp_path / 'v4c.rgb'
     raw.write_bytes(bytes(rgb))
     out = tmp_path / 'o.bin'
@@ -135,10 +148,41 @@ def test_cross_v4_cenc_pydec(tmp_path):
     src.write_bytes(msg)
     raw = tmp_path / 'v4e.rgb'
     r = subprocess.run([hx, 'enc4', str(w), str(h), '7', 'xpw', '1', '0',
-                        '8', str(src), str(raw)])
+                        '8', '1', '1', '32', '1', str(src), str(raw)])
     assert r.returncode == 0
     rgb = list(raw.read_bytes())
     assert decode_image_v4(rgb, w, h, 'xpw') == msg
+
+
+def test_cross_v4_cenc_pydec_nostc(tmp_path):
+    # Greedy path cross-check (STC off both sides).
+    hx = _harness()
+    w, h = 64, 64
+    msg = os.urandom(200)
+    src = tmp_path / 'p.bin'
+    src.write_bytes(msg)
+    raw = tmp_path / 'v4g.rgb'
+    r = subprocess.run([hx, 'enc4', str(w), str(h), '7', 'xpw', '1', '0',
+                        '8', '0', '1', '32', '1', str(src), str(raw)])
+    assert r.returncode == 0
+    rgb = list(raw.read_bytes())
+    assert decode_image_v4(rgb, w, h, 'xpw') == msg
+
+
+def test_cross_v4_kdf0(tmp_path):
+    # Legacy PBKDF2 path interop both directions (kdf_id 0).
+    hx = _harness()
+    w, h = 64, 64
+    msg = os.urandom(200)
+    rgb = encode_image_v4(black(w, h), w, h, msg, 'xpw', seed=7,
+                          kdf='pbkdf2')
+    raw = tmp_path / 'v4k.rgb'
+    raw.write_bytes(bytes(rgb))
+    out = tmp_path / 'o.bin'
+    r = subprocess.run([hx, 'dec', str(w), str(h), 'xpw', str(raw),
+                        str(out)])
+    assert r.returncode == 0
+    assert out.read_bytes() == msg
 
 
 def _harness():

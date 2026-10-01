@@ -46,6 +46,11 @@ typedef struct {
     int adaptive;
     int robust;
     uint32_t costq;        // 1..16
+    int stc;               // syndrome-trellis coding (default on)
+    int kdf;               // 0 = PBKDF2-210k, 1 = Argon2id (default)
+    uint32_t kdf_m_kib;
+    uint32_t kdf_time;
+    uint32_t kdf_lanes;    // 1 supported
 } stego_options_v4_t;
 
 // v4 encode (additive; stego_decode dispatches v3/v4 by header version).

@@ -77,7 +77,7 @@ def cmd_info(a):
     if ver is None and npx > 256:
         # v4 header lives in R/B slots: re-read the 64B header properly
         hdr = bytes(v4_read_bits(flat(img), w, list(range(256)),
-                                 V4_HEADER_LEN * 8, False))
+                                 V4_HEADER_LEN * 8))
         if hdr[:4] == MAGIC:
             ver, flags = struct.unpack('<H', hdr[4:6])[0], struct.unpack('<H', hdr[6:8])[0]
     if ver is None:

@@ -1,5 +1,6 @@
 {
  "covers": 12,
+ "cover_kind": "synthetic",
  "dims": [
   256,
   256
@@ -20,7 +21,7 @@
     "rs": {
      "auc": 1.0,
      "det05": 1.0,
-     "stego_mean": 0.0302
+     "stego_mean": 0.0299
     },
     "spa": {
      "auc": 1.0,
@@ -30,74 +31,107 @@
     "smooth": {
      "auc": 1.0,
      "det05": 1.0,
-     "stego_mean": -0.5669
+     "stego_mean": -0.567
     }
    },
-   "probe_auc": 1.0
+   "probe_auc": 1.0,
+   "probe_spam_auc": 1.0
   },
   "v3scatter@0.25bpp": {
-   "bpp": 0.25,
-   "payload": 2048,
-   "psnr_mean": 61.79,
-   "changed_frac": 0.043,
-   "detectors": {
-    "chi2": {
-     "auc": 1.0,
-     "det05": 1.0,
-     "stego_mean": 0.0
-    },
-    "rs": {
-     "auc": 1.0,
-     "det05": 1.0,
-     "stego_mean": 0.0195
-    },
-    "spa": {
-     "auc": 1.0,
-     "det05": 1.0,
-     "stego_mean": -0.2683
-    },
-    "smooth": {
-     "auc": 1.0,
-     "det05": 1.0,
-     "stego_mean": -0.5713
-    }
-   },
-   "probe_auc": 1.0
-  },
-  "v4adapt@0.25bpp": {
    "bpp": 0.25,
    "payload": 2048,
    "psnr_mean": 61.81,
    "changed_frac": 0.0429,
    "detectors": {
     "chi2": {
-     "auc": 0.979,
-     "det05": 0.917,
+     "auc": 1.0,
+     "det05": 1.0,
      "stego_mean": 0.0
     },
     "rs": {
-     "auc": 0.517,
-     "det05": 0.0,
-     "stego_mean": -0.0024
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": 0.0194
     },
     "spa": {
-     "auc": 0.833,
-     "det05": 0.5,
-     "stego_mean": -0.2863
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": -0.2682
     },
     "smooth": {
-     "auc": 0.535,
-     "det05": 0.0,
-     "stego_mean": -0.5849
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": -0.5712
     }
    },
-   "probe_auc": 0.767
+   "probe_auc": 1.0,
+   "probe_spam_auc": 1.0
+  },
+  "v4adapt@0.25bpp": {
+   "bpp": 0.25,
+   "payload": 2048,
+   "psnr_mean": 61.89,
+   "changed_frac": 0.0421,
+   "detectors": {
+    "chi2": {
+     "auc": 0.604,
+     "det05": 0.167,
+     "stego_mean": 0.0
+    },
+    "rs": {
+     "auc": 0.514,
+     "det05": 0.083,
+     "stego_mean": -0.0026
+    },
+    "spa": {
+     "auc": 0.635,
+     "det05": 0.25,
+     "stego_mean": -0.2868
+    },
+    "smooth": {
+     "auc": 0.389,
+     "det05": 0.0,
+     "stego_mean": -0.5856
+    }
+   },
+   "probe_auc": 0.55,
+   "probe_spam_auc": 0.9
+  },
+  "v4greedy@0.25bpp": {
+   "bpp": 0.25,
+   "payload": 2048,
+   "psnr_mean": 61.8,
+   "changed_frac": 0.0429,
+   "detectors": {
+    "chi2": {
+     "auc": 0.653,
+     "det05": 0.333,
+     "stego_mean": 0.0
+    },
+    "rs": {
+     "auc": 0.51,
+     "det05": 0.0,
+     "stego_mean": -0.0025
+    },
+    "spa": {
+     "auc": 0.653,
+     "det05": 0.167,
+     "stego_mean": -0.2868
+    },
+    "smooth": {
+     "auc": 0.465,
+     "det05": 0.0,
+     "stego_mean": -0.5853
+    }
+   },
+   "probe_auc": 0.533,
+   "probe_spam_auc": 1.0
   },
   "v4nonadapt@0.25bpp": {
    "bpp": 0.25,
    "payload": 2048,
-   "psnr_mean": 61.82,
-   "changed_frac": 0.0428,
+   "psnr_mean": 61.91,
+   "changed_frac": 0.0419,
    "detectors": {
     "chi2": {
      "auc": 1.0,
@@ -105,28 +139,29 @@
      "stego_mean": 0.0
     },
     "rs": {
-     "auc": 0.535,
-     "det05": 0.167,
-     "stego_mean": -0.002
+     "auc": 0.521,
+     "det05": 0.083,
+     "stego_mean": -0.0021
     },
     "spa": {
      "auc": 1.0,
      "det05": 1.0,
-     "stego_mean": -0.2548
+     "stego_mean": -0.2551
     },
     "smooth": {
      "auc": 1.0,
      "det05": 1.0,
-     "stego_mean": -0.5672
+     "stego_mean": -0.5673
     }
    },
-   "probe_auc": 1.0
+   "probe_auc": 1.0,
+   "probe_spam_auc": 1.0
   },
   "v3seq@1.0bpp": {
    "bpp": 1.0,
    "payload": 8192,
-   "psnr_mean": 55.88,
-   "changed_frac": 0.1679,
+   "psnr_mean": 55.87,
+   "changed_frac": 0.1683,
    "detectors": {
     "chi2": {
      "auc": 1.0,
@@ -141,21 +176,22 @@
     "spa": {
      "auc": 1.0,
      "det05": 1.0,
-     "stego_mean": -0.1893
+     "stego_mean": -0.1895
     },
     "smooth": {
      "auc": 1.0,
      "det05": 1.0,
-     "stego_mean": -0.5133
+     "stego_mean": -0.5134
     }
    },
-   "probe_auc": 1.0
+   "probe_auc": 1.0,
+   "probe_spam_auc": 1.0
   },
   "v3scatter@1.0bpp": {
    "bpp": 1.0,
    "payload": 8192,
    "psnr_mean": 55.88,
-   "changed_frac": 0.1679,
+   "changed_frac": 0.1678,
    "detectors": {
     "chi2": {
      "auc": 1.0,
@@ -165,26 +201,27 @@
     "rs": {
      "auc": 1.0,
      "det05": 1.0,
-     "stego_mean": 0.0713
+     "stego_mean": 0.0701
     },
     "spa": {
      "auc": 1.0,
      "det05": 1.0,
-     "stego_mean": -0.2228
+     "stego_mean": -0.223
     },
     "smooth": {
      "auc": 1.0,
      "det05": 1.0,
-     "stego_mean": -0.5372
+     "stego_mean": -0.5374
     }
    },
-   "probe_auc": 1.0
+   "probe_auc": 1.0,
+   "probe_spam_auc": 1.0
   },
   "v4adapt@1.0bpp": {
    "bpp": 1.0,
    "payload": 8192,
-   "psnr_mean": 55.88,
-   "changed_frac": 0.1679,
+   "psnr_mean": 55.92,
+   "changed_frac": 0.1663,
    "detectors": {
     "chi2": {
      "auc": 1.0,
@@ -192,28 +229,59 @@
      "stego_mean": 0.0
     },
     "rs": {
-     "auc": 0.42,
+     "auc": 0.479,
      "det05": 0.0,
-     "stego_mean": -0.0043
+     "stego_mean": -0.0028
     },
     "spa": {
-     "auc": 0.972,
+     "auc": 0.965,
      "det05": 0.917,
-     "stego_mean": -0.2856
+     "stego_mean": -0.2857
     },
     "smooth": {
-     "auc": 0.597,
-     "det05": 0.0,
-     "stego_mean": -0.5846
+     "auc": 0.646,
+     "det05": 0.083,
+     "stego_mean": -0.5844
     }
    },
-   "probe_auc": 1.0
+   "probe_auc": 0.967,
+   "probe_spam_auc": 1.0
+  },
+  "v4greedy@1.0bpp": {
+   "bpp": 1.0,
+   "payload": 8192,
+   "psnr_mean": 55.88,
+   "changed_frac": 0.1681,
+   "detectors": {
+    "chi2": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": 0.0
+    },
+    "rs": {
+     "auc": 0.399,
+     "det05": 0.0,
+     "stego_mean": -0.0041
+    },
+    "spa": {
+     "auc": 1.0,
+     "det05": 1.0,
+     "stego_mean": -0.2858
+    },
+    "smooth": {
+     "auc": 0.646,
+     "det05": 0.0,
+     "stego_mean": -0.5845
+    }
+   },
+   "probe_auc": 1.0,
+   "probe_spam_auc": 1.0
   },
   "v4nonadapt@1.0bpp": {
    "bpp": 1.0,
    "payload": 8192,
-   "psnr_mean": 55.88,
-   "changed_frac": 0.1677,
+   "psnr_mean": 55.93,
+   "changed_frac": 0.1661,
    "detectors": {
     "chi2": {
      "auc": 1.0,
@@ -221,22 +289,23 @@
      "stego_mean": 0.0
     },
     "rs": {
-     "auc": 0.417,
-     "det05": 0.083,
-     "stego_mean": -0.0038
+     "auc": 0.378,
+     "det05": 0.0,
+     "stego_mean": -0.0044
     },
     "spa": {
      "auc": 1.0,
      "det05": 1.0,
-     "stego_mean": -0.1869
+     "stego_mean": -0.1877
     },
     "smooth": {
      "auc": 1.0,
      "det05": 1.0,
-     "stego_mean": -0.529
+     "stego_mean": -0.5291
     }
    },
-   "probe_auc": 1.0
+   "probe_auc": 1.0,
+   "probe_spam_auc": 1.0
   }
  },
  "sanity": {

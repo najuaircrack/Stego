@@ -24,11 +24,14 @@ CASES = [
      {'seed': 424242, 'password': 'correct horse battery staple', 'do_auth': True}),
     ('empty-cover-edge', 32, 40, b'odd-dims-payload-1234', {'seed': 5, 'scatter': True}),
     ('v4-adapt-64', 64, 64, b'v4-adaptive-payload-' * 10,
-     {'version': 4, 'seed': 7, 'password': 'v4-test-pw-1', 'adaptive': True}),
+     {'version': 4, 'seed': 7, 'password': 'v4-test-pw-1', 'adaptive': True,
+      'kdf': 'argon2id', 'argon2_m_kib': 32, 'argon2_time': 1}),
     ('v4-nonadapt-64', 64, 64, b'v4-sequential-payload-' * 8,
-     {'version': 4, 'seed': 0, 'password': 'v4-test-pw-2', 'adaptive': False}),
+     {'version': 4, 'seed': 0, 'password': 'v4-test-pw-2', 'adaptive': False,
+      'kdf': 'argon2id', 'argon2_m_kib': 32, 'argon2_time': 1}),
     ('v4-robust-96', 96, 96, bytes((i * 13 + 5) & 0xFF for i in range(400)),
-     {'version': 4, 'seed': 9, 'password': 'v4-test-pw-3', 'robust': True}),
+     {'version': 4, 'seed': 9, 'password': 'v4-test-pw-3', 'robust': True,
+      'kdf': 'argon2id', 'argon2_m_kib': 32, 'argon2_time': 1}),
 ]
 
 

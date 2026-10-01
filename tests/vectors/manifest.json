@@ -29,7 +29,7 @@
     "h": 64,
     "version": 3,
     "payload_sha256": "59f995a114f5f67135cb376dfd0040a599fe5ca3e49f5b6bdf9657d6ad490195",
-    "image_sha256": "4559471f860754360bf76f58b2bea6e989a985a22e3e7d7ac1a567191d1f76df",
+    "image_sha256": "5f797c6e79361c19770a300d70b3e13922f42a55760f8ac6b8d820c90ec515e5",
     "kwargs": {
       "password": "***"
     }
@@ -41,7 +41,7 @@
     "h": 96,
     "version": 3,
     "payload_sha256": "7eeb62713d060ab831056f9e3a27c74a053dc32830bc468eba9fe3a062567233",
-    "image_sha256": "ebdebcfca331980b8af15038cc41d02959af7ae4ed4b2492016f99fbf0485268",
+    "image_sha256": "56584c927b6241c19ceca6aaa7f33b61c22458d1f1a0abe502aa3666154fbee6",
     "kwargs": {
       "seed": 424242,
       "password": "***",
@@ -68,11 +68,14 @@
     "h": 64,
     "version": 4,
     "payload_sha256": "df77ebe3986eb21a6c61186a69cf094d55c6f656756f4278f0d68d8a1bfd4b0b",
-    "image_sha256": "44c7544370147139c2f71ca7bb9810ab1ce4c4cdeaea037ec4fce68c1f3ebf9a",
+    "image_sha256": "59c791b6943d510a808a025fb098b7bf3ef1c3b07a940ccf7b5ae2e48cc5283a",
     "kwargs": {
       "seed": 7,
       "password": "***",
-      "adaptive": true
+      "adaptive": true,
+      "kdf": "argon2id",
+      "argon2_m_kib": 32,
+      "argon2_time": 1
     }
   },
   {
@@ -82,11 +85,14 @@
     "h": 64,
     "version": 4,
     "payload_sha256": "c8760c0647428754f7d68faef16632ba85363407a00fec4b1354c4c67bcb1a3a",
-    "image_sha256": "1e09707c99d22e5905536d552392e70725e1ea2a6e90888ad73cca3e3cd21294",
+    "image_sha256": "cdfb21b63868faa164c039cc10c94c7400ae8fcf60b2c81069d31d0c769ac3fa",
     "kwargs": {
       "seed": 0,
       "password": "***",
-      "adaptive": false
+      "adaptive": false,
+      "kdf": "argon2id",
+      "argon2_m_kib": 32,
+      "argon2_time": 1
     }
   },
   {
@@ -96,11 +102,14 @@
     "h": 96,
     "version": 4,
     "payload_sha256": "b977cbc4793bb7d7fe1bddba24edb660ff2178228af6699d4f7b4e6aa4d08794",
-    "image_sha256": "e29ef15cf6d53e0ddba3450f13e6d9ab0826a103639e26d1debff085cdd52a03",
+    "image_sha256": "c6f66b36307bb966fb9011df9eecb72d4cfa1d3265fb6b1a4dc2228852bef61b",
     "kwargs": {
       "seed": 9,
       "password": "***",
-      "robust": true
+      "robust": true,
+      "kdf": "argon2id",
+      "argon2_m_kib": 32,
+      "argon2_time": 1
     }
   }
 ]

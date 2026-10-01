@@ -69,17 +69,27 @@ Stage pipeline (encode order; decode reverses):
 | Header integrity = CRC32 only | CRC32 (fast reject) + AEAD associated-data cover (cryptographic) |
 | No robustness story | Optional repetition-3 + majority vote (`ROBUST`; survives PNG re-encode, NOT resize) |
 
-### 2.1 Key derivation (password mode)
+### 2.1 Key derivation (password mode, agile)
 
 - Password encoding: UTF-8 bytes as given.
-- KDF: PBKDF2-HMAC-SHA256, **210,000 iterations**, 16-byte random salt
-  (stored in header), **96-byte** output:
-  - `[0..32)` message key (ChaCha20-Poly1305 key)
-  - `[32..44)` base nonce (12 bytes, ChaCha20-Poly1305 nonce)
-  - `[44..96)` reserved, MUST be zero on encode, ignored on decode
-- Salt is fresh CSPRNG output per encode: unique (key, nonce) per message
-  even under password reuse. Each message uses one 12-byte nonce for one
-  AEAD encryption, so nonces never repeat.
+- `kdf_id` selects the function (header field `[40..44)`):
+  - `0` — PBKDF2-HMAC-SHA256, **210,000 iterations**, 16-byte salt,
+    **96-byte** output (`[0..32)` message key, `[32..44)` base nonce,
+    rest reserved). Legacy v4.0 images always carry `kdf_id 0` with
+    zeroed `kdf_m_kib/time/lanes`.
+  - `1` — Argon2id (RFC 9106, version `0x13`), 16-byte salt, **96-byte**
+    tag output with the identical split. Recommended production
+    parameters: `m = 65536 KiB`, `t = 3`, `lanes = 1` (RFC 9106
+    second recommendation, single-lane).
+- `kdf_m_kib` (`[48..52)`), `kdf_time` (`[52..56)`), `kdf_lanes`
+  (`[56..60)`): Argon2id parameters. For `kdf_id 0` all three MUST be
+  zero (decoders reject nonzero). For `kdf_id 1`: `m` in
+  `[8, 1048576]`, `t` in `[1, 16]`, `lanes == 1` (only single-lane is
+  specified; anything else is rejected fail-closed — this also bounds
+  decoder memory/time against malicious headers).
+- Salt is fresh CSPRNG output per encode under both ids: unique
+  (key, nonce) per message even under password reuse. Each message uses
+  one 12-byte nonce for one AEAD encryption, so nonces never repeat.
 
 ### 2.2 Header (64 bytes, always present)
 
@@ -93,15 +103,19 @@ Stage pipeline (encode order; decode reverses):
 | 16 | 4 | comp_size | AEAD ciphertext bytes INCLUDING the 16-byte tag (u32) |
 | 20 | 4 | costq | cost buckets Q, `1..16` (`8` default; `1` = degenerate uniform order) |
 | 24 | 16 | salt | fresh random per encode (KDF salt) |
-| 40 | 4 | reserved | zero |
+| 40 | 4 | kdf_id | `0` = PBKDF2-210k (v4.0 legacy), `1` = Argon2id |
 | 44 | 4 | header_crc32 | CRC32 of bytes `[0..44)` (fast reject only) |
-| 48 | 16 | reserved2 | zero (future use) |
+| 48 | 4 | kdf_m_kib | Argon2id memory KiB (`0` unless `kdf_id == 1`) |
+| 52 | 4 | kdf_time | Argon2id passes (`0` unless `kdf_id == 1`) |
+| 56 | 4 | kdf_lanes | Argon2id lanes, MUST be `1` (`0` unless `kdf_id == 1`) |
+| 60 | 4 | reserved2 | zero |
 
 Flags (v4): bit0 `COMPRESS` (reserved, encoders reject), bit1 `SCATTER`
 (keyed shuffle; `ADAPTIVE` implies bucket order first), bit2 `ENCRYPT`
 (MUST be 1 in v4), bit3 `AUTH` (MUST be 1 in v4), bit4 `ADAPTIVE`
 (cost-ordered placement; else v3-style sequential-after-header with ±1
-embedding), bit5 `ROBUST` (repetition-3 + majority vote).
+embedding), bit5 `ROBUST` (RS-ECC + interleave, §2.6), bit6 `STC`
+(syndrome-trellis coding, §2.4b; default on for new encodes).
 `STEGO_HEADER_PX_V4 = 176` (176 px × 3 ch = 528 ≥ 512 header bits).
 
 ### 2.3 AEAD construction (encode order; decode reverses)
@@ -133,10 +147,21 @@ benefit: green carries ~60% of luminance, so the luminance histogram is
 nearly preserved.) Kerckhoffs note: the method is public; adaptivity
 minimises distortion, it does not hide the method.
 
-1. Cost = variance of the 3x3 neighbourhood of the GREEN channel
-   (mirror edges), as an exact integer:
-   `cost = (9*sumSq - sum*sum) / 81` (integer floor; both sides MUST use
-   this formula, not float variance).
+1. Cost = S-UNIWARD-style wavelet residual energy of the GREEN channel
+   (mirror edges), computed with the INTEGER 5/3 lifting DWT (JPEG2000
+   lifting, bit-exact across ports — floor division everywhere, never
+   `>>` on possibly-negative intermediates):
+   predict `d[n] = odd[n] - floor((even[n] + even[n+1]) / 2)`,
+   update `s[n] = even[n] + floor((d[n-1] + d[n] + 2) / 4)`,
+   applied separably rows-then-columns (symmetric extension: out-of-range
+   taps mirror, i.e. index `-1 → 1`, `N → N-2`, matching the lifting
+   convention). Subbands LH/HL/HH give the high-frequency maps (LL
+   positions zeroed);
+   `cost(p) = Σ |LH| + |HL| + |HH|` over the 3x3 window at `p`
+   (window borders mirrored the same way; all integer, exact).
+   Green-only + R/B-only embedding keep the
+   invariance argument (§2.4 head) intact: decode-side costs equal
+   encode-side costs exactly.
 2. Bucket (integer-only): `L = bit_length(cost)` (`0` for cost `0`);
    `bucket = min(Q-1, (L*Q) >> 4)`, where `Q = costq` from the header.
    (`cost` fits in 15 bits for 8-bit imagery, so `L <= 15`.) There is NO
@@ -158,10 +183,37 @@ minimises distortion, it does not hide the method.
    Body stream bit `m` → the slot stream of the candidate order.
    (`ROBUST`: each body bit occupies 3 consecutive slots; decode takes
    majority vote, ties → 0.)
-5. Capacity: 2 body bits per candidate pixel (÷3 under `ROBUST`).
+5. Capacity: 2 body bits per candidate pixel (ECC framing under
+   `ROBUST`, §2.6, changes the payload-to-slot math, not the order).
    Encoders refuse oversize payloads explicitly, same as v3.
    Non-`ADAPTIVE` v4: v3-style `PlacementRange(256, N-256, seed)` order
    over the same R/B slot mapping (header identical).
+
+### 2.4b Syndrome-trellis coding (STC, default on)
+
+Greedy ±1 flips the first bits that fit; STC finds the globally cheapest
+flip pattern for the whole message given per-position costs — near the
+theoretical distortion bound instead of merely under it.
+
+1. Message bits `m[0..M)` (the AEAD body, or the RS codeword under
+   `ROBUST`) are embedded into the first `n = M + h` candidate slots'
+   LSBs, `h = 7` (constraint height, fixed).
+2. Parity-check band: message bit `j` = XOR over `k = 0..h` of
+   `S[k] · y[j+k]`, where `y` are the stego LSBs and the submatrix is
+   `S[0] = 1`, `S[1..h]` = the next `h` bits of
+   `Xor128(seed XOR 0x535443)` output LSB-first (`0x535443` = ASCII
+   "STC" domain tag; same xorshift core — bit-exact across ports).
+3. Flip cost of position `i` = `Q - bucket(i)` (`1` = cheapest texture
+   … `Q` = smoothest). Costs never touch the wire (only the bucket
+   order does), so cost granularity may evolve without format impact.
+4. Encoder runs Viterbi over `2^h = 128` states with integer metrics
+   (exact, no float ties-to-break); traceback yields the minimum-cost
+   flip pattern, realized via ±1 with the §2.5 direction rule. Reader
+   recomputes the syndromes from the LSBs — it needs no costs, no
+   trellis, no order beyond the candidate list both sides share.
+5. `STC` off = greedy ±1 in slot order (kept for constrained decoders;
+   same wire positions, same reader for the order — only the flip
+   pattern differs, which the AEAD authenticates either way).
 
 ### 2.5 Ternary ±1 embedding (all v4 modes, header AND body)
 
@@ -187,10 +239,25 @@ quantify the gap; v4 claims REDUCTION, never invisibility.
 
 ### 2.6 Robustness (ROBUST)
 
-Repetition-3 + majority vote + header CRC pre-check. Survives: PNG
-re-encode (lossless), isolated single-LSB flips, metadata rewrite. Does
-NOT survive: resize, crop, rotation, JPEG recompression (documented
-non-goal; LSB-family payloads cannot survive lossy resampling).
+Reed–Solomon `RS(255,223)` over `GF(2^8)` (primitive poly `0x11D`,
+generator roots α^0..α^31, `t = 16` correctable bytes per block) +
+full block interleave, then the codeword stream is embedded exactly
+like a normal body (STC/greedy per flags). Precise framing
+(bit-exact across ports):
+- Input is the AEAD ciphertext `C` (`orig+20` bytes). Pad with zero
+  bytes to a multiple of 223 → `nblocks`; each 223B chunk encodes
+  systematically to 255B as `data || parity` (parity = remainder of
+  `data·x^32` by the generator polynomial).
+- Interleave (depth = block count): stream byte `s` ← block
+  `(s mod nblocks)` byte `(s div nblocks)`. A burst of `B` bytes hits
+  each block ~`B/nblocks` times (tolerated while ≤ 16 per block).
+- `comp_size = nblocks·255`. Decoders recompute
+  `nblocks = ceil((orig+20)/223)` from `orig_size` and REQUIRE
+  `comp_size == nblocks·255` exactly, depad by truncating the
+  concatenated data parts to `orig+20`, and fail closed on any
+  undecodable block. Survives: PNG re-encode (lossless), scattered
+  burst flips within budget, metadata rewrite. Does NOT survive:
+  resize, crop, rotation, JPEG recompression (documented non-goal).
 
 ### 2.7 Non-goals (explicit)
 
@@ -207,5 +274,8 @@ non-goal; LSB-family payloads cannot survive lossy resampling).
 `STEGO_FORMAT_VERSION` keeps meaning "newest envelope this build WRITES"
 (= `0x0004`), while decoders accept `{0x0003, 0x0004}`. `STEGO_ABI_VERSION`
 is unchanged (`0x0001`): the C ABI is untouched (same function signatures;
-the version rides inside the image bytes). Golden vectors: all v3 vectors
-MUST still pass byte-identical; new v4 vectors are added alongside.
+the version rides inside the image bytes). KDF agility (`kdf_id`,
+§2.1) and the `STC`/`ROBUST` framings are backward-safe by AEAD: old
+decoders fail closed on what they cannot parse — never misdecode.
+Golden vectors: all v3 vectors MUST still pass byte-identical; new v4
+vectors are added alongside.

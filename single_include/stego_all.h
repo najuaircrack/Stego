@@ -38,6 +38,7 @@
 #define STEGO_V4_KDF_OUT 96     // 32 msg-key + 12 nonce + 52 reserved
 #define STEGO_V4_TAG_LEN 16
 #define STEGO_V4_COSTQ_DEFAULT 8
+#define STEGO_STC_H 7  // STC constraint height (128 trellis states)
 
 #define STEGO_SALT_LEN 16
 #define STEGO_PBKDF2_ITER 100000
@@ -48,7 +49,8 @@
 #define STEGO_F_ENCRYPT  0x0004
 #define STEGO_F_AUTH     0x0008
 #define STEGO_F_ADAPTIVE 0x0010  // v4: cost-ordered placement
-#define STEGO_F_ROBUST   0x0020  // v4: repetition-3 + majority vote
+#define STEGO_F_ROBUST   0x0020  // v4: RS-ECC framing (§2.6)
+#define STEGO_F_STC      0x0040  // v4: syndrome-trellis coding (§2.4b)
 
 #define STEGO_HMAC_LEN 32
 // ---- stego.h ----
@@ -85,8 +87,13 @@ struct OptionsV4 {
     std::string password;     // REQUIRED, non-empty
     bool scatter = true;      // policy signal (keyed order always applies)
     bool adaptive = true;     // cost-ordered placement (green-invariant)
-    bool robust = false;      // repetition-3 + majority vote
+    bool robust = false;      // RS-ECC framing (§2.6)
     uint32_t costq = 8;       // cost buckets 1..16
+    bool stc = true;          // syndrome-trellis coding (§2.4b)
+    int kdf = 1;              // 0 = PBKDF2-210k (fast), 1 = Argon2id
+    uint32_t kdf_m_kib = 65536;  // Argon2id memory (KiB)
+    uint32_t kdf_time = 3;       // Argon2id passes
+    uint32_t kdf_lanes = 1;      // Argon2id lanes (1 supported)
 };
 
 // Encode with the v4 envelope. Returns false on capacity/parameter
@@ -154,6 +161,11 @@ typedef struct {
     int adaptive;
     int robust;
     uint32_t costq;        // 1..16
+    int stc;               // syndrome-trellis coding (default on)
+    int kdf;               // 0 = PBKDF2-210k, 1 = Argon2id (default)
+    uint32_t kdf_m_kib;
+    uint32_t kdf_time;
+    uint32_t kdf_lanes;    // 1 supported
 } stego_options_v4_t;
 
 // v4 encode (additive; stego_decode dispatches v3/v4 by header version).
@@ -477,33 +489,67 @@ int GetBit(const std::vector<uint8_t>& rgb, uint32_t w,
     return rgb[(y * w + x) * 3 + (k % 3)] & 1;
 }
 
-// --- v4 adaptive placement (FORMAT.md §2.4): green-channel costs,
-// R/B slots. Green is never written, so decode-side costs are bit-exact.
+// --- v4 adaptive placement (FORMAT.md §2.4): S-UNIWARD-style wavelet
+// costs over GREEN, R/B slots. Green is never written, so decode-side
+// costs are bit-exact. All math is integer with portable floor division
+// (never >> on negatives) to match the Python port bit-for-bit.
 
-static uint32_t ClampDim(int v, uint32_t lim) {
-    if (v < 0) return 0;
-    if ((uint32_t)v >= lim) return lim - 1;
-    return (uint32_t)v;
+static int32_t MirrorIdx(int i, int n) {
+    while (i < 0 || i >= n) {
+        if (i < 0)
+            i = -i;
+        else
+            i = 2 * (n - 1) - i;
+    }
+    return i;
 }
 
-// 3x3 green variance at every pixel (mirror edges), exact integer math:
-// cost = (9*sumSq - sum*sum) / 81. Max ~5.3M: fits uint32, never underflows.
+static int32_t FDiv2(int32_t v) { return v >= 0 ? v / 2 : -((-v + 1) / 2); }
+static int32_t FDiv4(int32_t v) { return v >= 0 ? v / 4 : -((-v + 3) / 4); }
+
+// In-place integer 5/3 lifting on one row/column (symmetric extension).
+// Predict odds from ORIGINAL evens, then update evens from predicted odds.
+static void Dwt53Row(int32_t* x, int n) {
+    for (int i = 1; i < n; i += 2) {
+        int32_t l = x[MirrorIdx(i - 1, n)], r = x[MirrorIdx(i + 1, n)];
+        x[i] = x[i] - FDiv2(l + r);
+    }
+    for (int i = 0; i < n; i += 2) {
+        int32_t l = x[MirrorIdx(i - 1, n)], r = x[MirrorIdx(i + 1, n)];
+        x[i] = x[i] + FDiv4(l + r + 2);
+    }
+}
+
 void CostMapGreen(const std::vector<uint8_t>& rgb, uint32_t w, uint32_t h,
                   std::vector<uint32_t>& cost) {
+    std::vector<int32_t> t((size_t)w * h);
+    for (size_t i = 0; i < t.size(); i++) t[i] = (int32_t)rgb[i * 3 + 1];
+    std::vector<int32_t> line(w > h ? w : h);
+    for (uint32_t y = 0; y < h; y++) {
+        for (uint32_t x = 0; x < w; x++) line[x] = t[(size_t)y * w + x];
+        Dwt53Row(line.data(), (int)w);
+        for (uint32_t x = 0; x < w; x++) t[(size_t)y * w + x] = line[x];
+    }
+    for (uint32_t x = 0; x < w; x++) {
+        for (uint32_t y = 0; y < h; y++) line[y] = t[(size_t)y * w + x];
+        Dwt53Row(line.data(), (int)h);
+        for (uint32_t y = 0; y < h; y++) t[(size_t)y * w + x] = line[y];
+    }
+    // Magnitude map (LL zeroed: even row + even col), then 3x3 sums.
     cost.assign((size_t)w * h, 0);
     for (uint32_t y = 0; y < h; y++) {
         for (uint32_t x = 0; x < w; x++) {
-            uint32_t s = 0, q = 0;
+            uint32_t s = 0;
             for (int dy = -1; dy <= 1; dy++) {
-                uint32_t yy = ClampDim((int)y + dy, h);
+                uint32_t yy = (uint32_t)MirrorIdx((int)y + dy, (int)h);
                 for (int dx = -1; dx <= 1; dx++) {
-                    uint32_t xx = ClampDim((int)x + dx, w);
-                    uint32_t v = rgb[((size_t)yy * w + xx) * 3 + 1];
-                    s += v;
-                    q += v * v;
+                    uint32_t xx = (uint32_t)MirrorIdx((int)x + dx, (int)w);
+                    int32_t c = t[(size_t)yy * w + xx];
+                    if (xx % 2 == 1 || yy % 2 == 1)
+                        s += (uint32_t)(c < 0 ? -c : c);
                 }
             }
-            cost[(size_t)y * w + x] = (9 * q - s * s) / 81;
+            cost[(size_t)y * w + x] = s;
         }
     }
 }
@@ -523,6 +569,12 @@ uint32_t CostBucket(uint32_t cost, uint32_t q) {
     return b >= q ? q - 1 : (uint32_t)b;
 }
 
+void OrderCostsV4(const std::vector<uint8_t>& rgb, uint32_t w, uint32_t h,
+                  uint32_t seed, uint32_t q, bool adaptive,
+                  std::vector<uint32_t>& order, std::vector<uint8_t>& costs);
+static size_t SlotChannel(const std::vector<uint32_t>& order, size_t s);
+static int DirBit(uint64_t seed64, size_t s);
+
 std::vector<uint32_t> CandidateOrderV4(const std::vector<uint8_t>& rgb,
                                        uint32_t w, uint32_t h, uint32_t seed,
                                        uint32_t q, bool adaptive) {
@@ -530,15 +582,35 @@ std::vector<uint32_t> CandidateOrderV4(const std::vector<uint8_t>& rgb,
     if (!adaptive)
         return PlacementRange(STEGO_V4_HEADER_PX, nPx - STEGO_V4_HEADER_PX,
                               seed);
-    std::vector<uint32_t> cost;
-    CostMapGreen(rgb, w, h, cost);
+    std::vector<uint32_t> order;
+    std::vector<uint8_t> costs;
+    OrderCostsV4(rgb, w, h, seed, q, adaptive, order, costs);
+    return order;
+}
+
+// Order + per-position flip costs (Q - bucket; uniform 1 when flat).
+// Single source for greedy and STC paths.
+void OrderCostsV4(const std::vector<uint8_t>& rgb, uint32_t w, uint32_t h,
+                  uint32_t seed, uint32_t q, bool adaptive,
+                  std::vector<uint32_t>& order, std::vector<uint8_t>& costs) {
+    uint32_t nPx = w * h;
+    if (!adaptive) {
+        order = PlacementRange(STEGO_V4_HEADER_PX, nPx - STEGO_V4_HEADER_PX,
+                               seed);
+        costs.assign(order.size(), 1);
+        return;
+    }
+    std::vector<uint32_t> cmap;
+    CostMapGreen(rgb, w, h, cmap);
     std::vector<uint32_t> members[16];
     for (uint32_t i = STEGO_V4_HEADER_PX; i < nPx; i++) {
-        uint32_t b = CostBucket(cost[i], q);
+        uint32_t b = CostBucket(cmap[i], q);
         if (b < 16) members[b].push_back(i);
     }
-    std::vector<uint32_t> order;
+    order.clear();
+    costs.clear();
     order.reserve(nPx);
+    costs.reserve(nPx);
     for (int b = 15; b >= 0; b--) {
         if (members[b].empty()) continue;
         std::vector<uint32_t>& m = members[b];
@@ -550,9 +622,108 @@ std::vector<uint32_t> CandidateOrderV4(const std::vector<uint8_t>& rgb,
             m[i] = m[j];
             m[j] = t;
         }
+        uint8_t c = (uint8_t)(q - (uint32_t)b);
         order.insert(order.end(), m.begin(), m.end());
+        costs.insert(costs.end(), m.size(), c ? c : 1);
     }
-    return order;
+}
+
+// --- Syndrome-trellis coding (FORMAT.md §2.4b): Viterbi over 2^7 states,
+// integer metrics. Submatrix S[0]=1, S[1..7] from Xor128 keystream.
+
+void StcSubmatrix(uint32_t seed, uint8_t sub[8]) {
+    Xor128 r((uint64_t)seed ^ 0x535443ull);
+    sub[0] = 1;
+    for (int k = 1; k < 8; k++) sub[k] = (uint8_t)(r.Next() & 1);
+}
+
+bool StcEncode(const uint8_t* cover, const uint8_t* costs, size_t n,
+               const uint8_t* msg, size_t msgLen, const uint8_t sub[8],
+               uint8_t* flips) {
+    const size_t M = msgLen * 8;
+    if (n < M + 7) return false;
+    // Cf[s][f]: flip-dependent syndrome part.
+    uint8_t cf[128][2];
+    for (int s = 0; s < 128; s++) {
+        for (int f = 0; f < 2; f++) {
+            uint8_t v = 0;
+            for (int k = 0; k < 7; k++)
+                if (sub[k] && (s >> k) & 1) v ^= 1;
+            if (sub[7] && f) v ^= 1;
+            cf[s][f] = v;
+        }
+    }
+    // Cover syndrome per message position.
+    std::vector<uint8_t> cx(M);
+    for (size_t j = 0; j < M; j++) {
+        uint8_t v = 0;
+        for (int k = 0; k < 8; k++)
+            if (sub[k] && cover[j + k]) v ^= 1;
+        cx[j] = v;
+    }
+    uint8_t msgBit = 0;
+    const uint64_t INF = (uint64_t)1 << 62;
+    uint64_t cur[128], nxt[128];
+    for (int s = 0; s < 128; s++) cur[s] = INF;
+    cur[0] = 0;
+    std::vector<uint8_t> prev(n * 128, 0);
+    for (size_t i = 0; i < n; i++) {
+        for (int s = 0; s < 128; s++) nxt[s] = INF;
+        for (int s = 0; s < 128; s++) {
+            if (cur[s] >= INF) continue;
+            for (int f = 0; f < 2; f++) {
+                if (i >= 7) {
+                    size_t j = i - 7;
+                    if (j >= M) continue;
+                    msgBit = (uint8_t)((msg[j / 8] >> (j % 8)) & 1);
+                    if ((uint8_t)(cx[j] ^ cf[s][f]) != msgBit) continue;
+                }
+                int ns = ((s >> 1) | (f << 6)) & 127;
+                uint64_t nm = cur[s] + (f ? costs[i] : 0);
+                if (nm < nxt[ns]) {
+                    nxt[ns] = nm;
+                    prev[i * 128 + ns] = (uint8_t)s;
+                }
+            }
+        }
+        memcpy(cur, nxt, sizeof(cur));
+    }
+    int best = 0;
+    for (int s = 1; s < 128; s++)
+        if (cur[s] < cur[best]) best = s;
+    if (cur[best] >= INF) return false;
+    int s = best;
+    for (size_t i = n; i-- > 0;) {
+        flips[i] = (uint8_t)((s >> 6) & 1);
+        s = prev[i * 128 + s];
+    }
+    return true;
+}
+
+void StcExtract(const uint8_t* y, size_t mBits, const uint8_t sub[8],
+                uint8_t* msg, size_t msgLen) {
+    memset(msg, 0, msgLen);
+    for (size_t j = 0; j < mBits; j++) {
+        uint8_t v = 0;
+        for (int k = 0; k < 8; k++)
+            if (sub[k] && y[j + k]) v ^= 1;
+        if (v) msg[j / 8] |= (uint8_t)(1 << (j % 8));
+    }
+}
+
+void ApplyFlipsV4(std::vector<uint8_t>& rgb, const std::vector<uint32_t>& order,
+                   const uint8_t* flips, size_t n, uint64_t seed64,
+                   size_t slotBase) {
+    for (size_t s = 0; s < n; s++) {
+        if (!flips[s]) continue;
+        uint8_t& ch = rgb[SlotChannel(order, s)];
+        if (ch == 0)
+            ch = 1;
+        else if (ch == 255)
+            ch = 254;
+        else
+            ch = (uint8_t)(ch + (DirBit(seed64, slotBase + s) ? 1 : -1));
+    }
 }
 
 // R/B slot map: slot s -> flat channel index (green never touched).
@@ -571,46 +742,35 @@ static int DirBit(uint64_t seed64, size_t s) {
 }
 
 bool EmbedV4(std::vector<uint8_t>& rgb, const std::vector<uint32_t>& order,
-             const uint8_t* src, size_t srcLen, bool robust, uint64_t seed64,
+             const uint8_t* src, size_t srcLen, uint64_t seed64,
              size_t slotBase) {
-    size_t need = srcLen * 8 * (robust ? 3 : 1);
+    size_t need = srcLen * 8;
     if (need > order.size() * 2) return false;
     size_t slots = 0;
     for (size_t bi = 0; bi < srcLen * 8; bi++) {
         int b = (src[bi / 8] >> (bi % 8)) & 1;
-        size_t rep = robust ? 3 : 1;
-        for (size_t k = 0; k < rep; k++) {
-            uint8_t& ch = rgb[SlotChannel(order, slots)];
-            if ((ch & 1) != b) {
-                if (ch == 0)
-                    ch = 1;
-                else if (ch == 255)
-                    ch = 254;
-                else
-                    ch = (uint8_t)(ch + (DirBit(seed64, slotBase + slots) ? 1 : -1));
-            }
-            slots++;
+        uint8_t& ch = rgb[SlotChannel(order, slots)];
+        if ((ch & 1) != b) {
+            if (ch == 0)
+                ch = 1;
+            else if (ch == 255)
+                ch = 254;
+            else
+                ch = (uint8_t)(ch + (DirBit(seed64, slotBase + slots) ? 1 : -1));
         }
+        slots++;
     }
     return true;
 }
 
 bool ReadV4(const std::vector<uint8_t>& rgb, const std::vector<uint32_t>& order,
-            size_t nBytes, bool robust, std::vector<uint8_t>& out) {
-    size_t need = nBytes * 8 * (robust ? 3 : 1);
+            size_t nBytes, std::vector<uint8_t>& out) {
+    size_t need = nBytes * 8;
     if (need > order.size() * 2) return false;
     out.assign(nBytes, 0);
     for (size_t bi = 0; bi < nBytes * 8; bi++) {
-        int b;
-        if (robust) {
-            int votes = 0;
-            for (int k = 0; k < 3; k++)
-                votes += rgb[SlotChannel(order, 3 * bi + (size_t)k)] & 1;
-            b = votes >= 2 ? 1 : 0;  // ties -> 0
-        } else {
-            b = rgb[SlotChannel(order, bi)] & 1;
-        }
-        if (b) out[bi / 8] |= (uint8_t)(1 << (bi % 8));
+        if (rgb[SlotChannel(order, bi)] & 1)
+            out[bi / 8] |= (uint8_t)(1 << (bi % 8));
     }
     return true;
 }
@@ -910,6 +1070,585 @@ bool AeadDecrypt(const uint8_t key[32], const uint8_t nonce[12],
 
 }  // namespace aead
 }  // namespace stego
+// ---- argon2.cpp ----
+// argon2.cpp - Argon2id (RFC 9106, version 0x13) for v4 KDF agility.
+// Transcribed from the RFC text (GB with multiplies per Fig.19, H0/H'
+// framing per Fig.1/8, indexing per 3.4); validated against the RFC
+// Argon2id test vector (see tests/test_codec.cpp), not from memory.
+// Single-lane production use; multi-lane implemented for validation.
+#include <stdint.h>
+
+namespace stego {
+namespace argon2 {
+
+// --- BLAKE2b (RFC 7693), variable digest length, no key ---
+
+static const uint64_t B2IV[8] = {
+    0x6a09e667f3bcc908ull, 0xbb67ae8584caa73bull, 0x3c6ef372fe94f82bull,
+    0xa54ff53a5f1d36f1ull, 0x510e527fade682d1ull, 0x9b05688c2b3e6c1full,
+    0x1f83d9abfb41bd6bull, 0x5be0cd19137e2179ull,
+};
+
+static const uint8_t B2SIGMA[12][16] = {
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+    {14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3},
+    {11, 8, 12, 0, 5, 2, 15, 13, 10, 14, 3, 6, 7, 1, 9, 4},
+    {7, 9, 3, 1, 13, 12, 11, 14, 2, 6, 5, 10, 4, 0, 15, 8},
+    {9, 0, 5, 7, 2, 4, 10, 15, 14, 1, 11, 12, 6, 8, 3, 13},
+    {2, 12, 6, 10, 0, 11, 8, 3, 4, 13, 7, 5, 15, 14, 1, 9},
+    {12, 5, 1, 15, 14, 13, 4, 10, 0, 7, 6, 3, 9, 2, 8, 11},
+    {13, 11, 7, 14, 12, 1, 3, 9, 5, 0, 15, 4, 8, 6, 2, 10},
+    {6, 15, 14, 9, 11, 3, 0, 8, 12, 2, 13, 7, 1, 4, 10, 5},
+    {10, 2, 8, 4, 7, 6, 1, 5, 15, 11, 9, 14, 3, 12, 13, 0},
+    {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15},
+    {14, 10, 4, 8, 9, 15, 13, 6, 1, 12, 0, 2, 11, 7, 5, 3},
+};
+
+static inline uint64_t Rotr64(uint64_t x, int n) {
+    return (x >> n) | (x << (64 - n));
+}
+
+static inline uint64_t Load64LE(const uint8_t* p) {
+    uint64_t v = 0;
+    for (int i = 0; i < 8; i++) v |= (uint64_t)p[i] << (i * 8);
+    return v;
+}
+
+static inline uint32_t Load32LE(const uint8_t* p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static inline void Store32LE(uint8_t* p, uint32_t v) {
+    p[0] = (uint8_t)v;
+    p[1] = (uint8_t)(v >> 8);
+    p[2] = (uint8_t)(v >> 16);
+    p[3] = (uint8_t)(v >> 24);
+}
+
+static inline void Store64LE(uint8_t* p, uint64_t v) {
+    for (int i = 0; i < 8; i++) p[i] = (uint8_t)(v >> (i * 8));
+}
+
+#define B2G(v, a, b, c, d, x, y)          \
+    v[a] += v[b] + (x);                   \
+    v[d] = Rotr64(v[d] ^ v[a], 32);       \
+    v[c] += v[d];                         \
+    v[b] ^= v[c];                         \
+    v[b] = Rotr64(v[b], 24);              \
+    v[a] += v[b] + (y);                   \
+    v[d] ^= v[a];                         \
+    v[d] = Rotr64(v[d], 16);              \
+    v[c] += v[d];                         \
+    v[b] ^= v[c];                         \
+    v[b] = Rotr64(v[b], 63);
+
+static void Blake2bCompress(uint64_t h[8], const uint8_t block[128],
+                            uint64_t ctrLo, uint64_t ctrHi, bool last) {
+    uint64_t m[16];
+    for (int i = 0; i < 16; i++) m[i] = Load64LE(block + i * 8);
+    uint64_t v[16];
+    for (int i = 0; i < 8; i++) v[i] = h[i];
+    for (int i = 0; i < 8; i++) v[i + 8] = B2IV[i];
+    v[12] ^= ctrLo;
+    v[13] ^= ctrHi;
+    if (last) v[14] = ~v[14];
+    for (int r = 0; r < 12; r++) {
+        B2G(v, 0, 4, 8, 12, m[B2SIGMA[r][0]], m[B2SIGMA[r][1]]);        B2G(v, 1, 5, 9, 13, m[B2SIGMA[r][2]], m[B2SIGMA[r][3]]);
+        B2G(v, 2, 6, 10, 14, m[B2SIGMA[r][4]], m[B2SIGMA[r][5]]);
+        B2G(v, 3, 7, 11, 15, m[B2SIGMA[r][6]], m[B2SIGMA[r][7]]);
+        B2G(v, 0, 5, 10, 15, m[B2SIGMA[r][8]], m[B2SIGMA[r][9]]);
+        B2G(v, 1, 6, 11, 12, m[B2SIGMA[r][10]], m[B2SIGMA[r][11]]);
+        B2G(v, 2, 7, 8, 13, m[B2SIGMA[r][12]], m[B2SIGMA[r][13]]);
+        B2G(v, 3, 4, 9, 14, m[B2SIGMA[r][14]], m[B2SIGMA[r][15]]);
+    }
+    for (int i = 0; i < 8; i++) h[i] ^= v[i] ^ v[i + 8];
+}
+
+// One-shot Blake2b, digest length outLen (1..64), no key.
+static void Blake2b(const uint8_t* in, size_t inLen, uint8_t* out,
+                    size_t outLen) {
+    uint64_t h[8];
+    for (int i = 0; i < 8; i++) h[i] = B2IV[i];
+    h[0] ^= 0x01010000 ^ (uint64_t)outLen;
+    uint64_t ctr = 0;
+    size_t off = 0;
+    if (inLen == 0) {
+        uint8_t blk[128] = {0};
+        Blake2bCompress(h, blk, 0, 0, true);
+    } else {
+        while (off < inLen) {
+            size_t take = inLen - off < 128 ? inLen - off : 128;
+            uint8_t blk[128] = {0};
+            memcpy(blk, in + off, take);
+            off += take;
+            ctr += take;
+            Blake2bCompress(h, blk, ctr, 0, off >= inLen);
+        }
+    }
+    uint8_t full[64];
+    for (int i = 0; i < 8; i++) Store64LE(full + i * 8, h[i]);
+    memcpy(out, full, outLen);
+    memset(full, 0, sizeof(full));
+}
+
+// Variable-length H' (RFC Fig.8): BOTH branches prepend LE32(outLen)
+// (the T<=64 branch is H^T(LE32(T)||A), not bare H^T(A)).
+static void HPrime(const uint8_t* a, size_t aLen, uint8_t* out,
+                   size_t outLen) {
+    if (outLen <= 64) {
+        // Hash ALL of A (A can exceed one block, e.g. the 1024-byte C).
+        std::vector<uint8_t> buf(4 + aLen);
+        buf[0] = (uint8_t)outLen;
+        buf[1] = (uint8_t)(outLen >> 8);
+        buf[2] = (uint8_t)(outLen >> 16);
+        buf[3] = (uint8_t)(outLen >> 24);
+        memcpy(buf.data() + 4, a, aLen);
+        Blake2b(buf.data(), buf.size(), out, outLen);
+        return;
+    }
+    size_t r = (outLen + 31) / 32 - 2;
+    std::vector<uint8_t> buf(4 + aLen);
+    buf[0] = (uint8_t)outLen;
+    buf[1] = (uint8_t)(outLen >> 8);
+    buf[2] = (uint8_t)(outLen >> 16);
+    buf[3] = (uint8_t)(outLen >> 24);
+    memcpy(buf.data() + 4, a, aLen);
+    std::vector<uint8_t> v(64);
+    Blake2b(buf.data(), buf.size(), v.data(), 64);
+    memcpy(out, v.data(), 32);
+    size_t done = 32;
+    for (size_t i = 1; i < r; i++) {
+        Blake2b(v.data(), 64, v.data(), 64);
+        memcpy(out + done, v.data(), 32);
+        done += 32;
+    }
+    size_t lastLen = outLen - 32 * r;
+    Blake2b(v.data(), 64, out + done, lastLen);
+}
+
+// --- Argon2id compression (RFC Fig.19 GB with multiplies) ---
+
+static inline uint64_t Trunc32(uint64_t x) { return x & 0xFFFFFFFFull; }
+
+#define AGB(a, b, c, d)                                   \
+    (a) = (a) + (b) + 2 * Trunc32(a) * Trunc32(b);        \
+    (d) = Rotr64((d) ^ (a), 32);                          \
+    (c) = (c) + (d) + 2 * Trunc32(c) * Trunc32(d);        \
+    (b) = Rotr64((b) ^ (c), 24);                          \
+    (a) = (a) + (b) + 2 * Trunc32(a) * Trunc32(b);        \
+    (d) = Rotr64((d) ^ (a), 16);                          \
+    (c) = (c) + (d) + 2 * Trunc32(c) * Trunc32(d);        \
+    (b) = Rotr64((b) ^ (c), 63);
+
+// P over 16 words (Fig.18 feeding order, verbatim).
+static void PermuteP(uint64_t v[16]) {
+    AGB(v[0], v[4], v[8], v[12]);
+    AGB(v[1], v[5], v[9], v[13]);
+    AGB(v[2], v[6], v[10], v[14]);
+    AGB(v[3], v[7], v[11], v[15]);
+    AGB(v[0], v[5], v[10], v[15]);
+    AGB(v[1], v[6], v[11], v[12]);
+    AGB(v[2], v[7], v[8], v[13]);
+    AGB(v[3], v[4], v[9], v[14]);
+}
+
+// G(X, Y): R = X^Y; rowwise P; columnwise P; out = Z^R. Blocks are
+// 1024 bytes = 128 words; rows are 16-word strips, columns strided.
+static void CompressG(const uint8_t x[1024], const uint8_t y[1024],
+                      uint8_t out[1024]) {
+    uint64_t r[128], q[128], z[128], t[16];
+    for (int i = 0; i < 128; i++)
+        r[i] = Load64LE(x + i * 8) ^ Load64LE(y + i * 8);
+    for (int row = 0; row < 8; row++) {
+        for (int i = 0; i < 16; i++) t[i] = r[row * 16 + i];
+        PermuteP(t);
+        for (int i = 0; i < 16; i++) q[row * 16 + i] = t[i];
+    }
+    for (int col = 0; col < 8; col++) {
+        // column c = registers c, c+8, ..., c+56 (each = 2 words)
+        for (int i = 0; i < 8; i++) {
+            uint32_t k = (uint32_t)col + 8u * (uint32_t)i;
+            t[2 * i] = q[2 * k];
+            t[2 * i + 1] = q[2 * k + 1];
+        }
+        PermuteP(t);
+        for (int i = 0; i < 8; i++) {
+            uint32_t k = (uint32_t)col + 8u * (uint32_t)i;
+            z[2 * k] = t[2 * i];
+            z[2 * k + 1] = t[2 * i + 1];
+        }
+    }
+    for (int i = 0; i < 128; i++) Store64LE(out + i * 8, z[i] ^ r[i]);
+}
+
+// Reference-block mapping (RFC 3.4.2): cyclic formulation verified
+// against the reference area rules. l = forced current lane on
+// (pass 0, slice 0), else J2 mod lanes. W is the `area` blocks ending
+// just before the excluded previous block; zz picks within it.
+static bool MapRef(uint32_t lane, uint32_t lanes, uint32_t r, uint32_t sl,
+                   uint32_t segLen, uint32_t j, uint32_t J1, uint32_t J2,
+                   uint32_t& l, uint32_t& z) {
+    uint32_t q = segLen * 4;
+    if (r == 0 && sl == 0)
+        l = lane;
+    else
+        l = lanes == 0 ? lane : J2 % lanes;
+    uint32_t c = sl * segLen + j;  // absolute column of current block
+    int64_t area;
+    uint32_t start;
+    if (l == lane) {
+        area = (r == 0) ? (int64_t)sl * segLen + (int64_t)j - 1
+                        : (int64_t)3 * segLen + (int64_t)j - 1;
+        int64_t s = (int64_t)c - 1 - area;
+        s %= (int64_t)q;
+        if (s < 0) s += q;
+        start = (uint32_t)s;
+    } else {
+        int64_t E = (int64_t)sl * segLen - 1;  // most recent finished
+        E %= (int64_t)q;
+        if (E < 0) E += q;
+        if (r == 0)
+            area = (int64_t)sl * segLen + (j == 0 ? -1 : 0);
+        else
+            area = (int64_t)3 * segLen + (j == 0 ? -1 : 0);
+        int64_t Ep = (j == 0) ? E - 1 : E;  // first block of a segment
+        int64_t s = Ep - area + 1;          // excludes the very last index
+        s %= (int64_t)q;
+        if (s < 0) s += q;
+        start = (uint32_t)s;
+    }
+    if (area <= 0) return false;  // unreachable by construction; fail closed
+    uint64_t x = ((uint64_t)J1 * J1) >> 32;
+    uint64_t y = ((uint64_t)(uint32_t)area * x) >> 32;
+    uint32_t zz = (uint32_t)area - 1 - (uint32_t)y;
+    z = (start + zz) % q;
+    return true;
+}
+
+static void PutU32Le(std::vector<uint8_t>& b, uint32_t v) {
+    b.push_back((uint8_t)v);
+    b.push_back((uint8_t)(v >> 8));
+    b.push_back((uint8_t)(v >> 16));
+    b.push_back((uint8_t)(v >> 24));
+}
+
+// Argon2id (y=2, v=0x13) tag derivation. Secret/AD empty in our use;
+// supported (nullable) so the RFC vectors validate exactly.
+bool Derive(const uint8_t* pw, size_t pwLen, const uint8_t* salt,
+            size_t saltLen, const uint8_t* secret, size_t secretLen,
+            const uint8_t* ad, size_t adLen, uint32_t passes,
+            uint32_t mem_kib, uint32_t lanes, uint8_t* out, size_t outLen) {
+    if (!pw || !salt || !out) return false;
+    if (lanes < 1 || outLen < 16 || outLen > (1u << 20)) return false;
+    if (mem_kib < 8 * lanes) return false;
+    if ((secretLen && !secret) || (adLen && !ad)) return false;
+    const uint32_t y = 2, v = 0x13;
+
+    // H0 = H^64(LE32(p) || LE32(T) || LE32(m) || LE32(t) || LE32(v) ||
+    //          LE32(y) || LE32(lenP) || P || ...). Zero-length K/X/S are
+    // absent but their length fields remain.
+    std::vector<uint8_t> h0in;
+    PutU32Le(h0in, lanes);
+    PutU32Le(h0in, (uint32_t)outLen);
+    PutU32Le(h0in, mem_kib);
+    PutU32Le(h0in, passes);
+    PutU32Le(h0in, v);
+    PutU32Le(h0in, y);
+    PutU32Le(h0in, (uint32_t)pwLen);
+    h0in.insert(h0in.end(), pw, pw + pwLen);
+    PutU32Le(h0in, (uint32_t)saltLen);
+    h0in.insert(h0in.end(), salt, salt + saltLen);
+    PutU32Le(h0in, (uint32_t)secretLen);
+    if (secretLen) h0in.insert(h0in.end(), secret, secret + secretLen);
+    PutU32Le(h0in, (uint32_t)adLen);
+    if (adLen) h0in.insert(h0in.end(), ad, ad + adLen);
+    uint8_t h0[64];
+    Blake2b(h0in.data(), h0in.size(), h0, sizeof(h0));
+
+    uint64_t mprime = (uint64_t)4 * lanes * (mem_kib / (4 * lanes));
+    uint32_t q = (uint32_t)(mprime / lanes);
+    uint32_t segLen = q / 4;
+    std::vector<uint8_t> mem(mprime * 1024, 0);
+    auto block = [&](uint32_t lane, uint32_t col) -> uint8_t* {
+        return mem.data() + ((size_t)lane * q + col) * 1024;
+    };
+    // Initial blocks: B[i][0] = H'^1024(H0||0||i), B[i][1] = H'^1024(H0||1||i).
+    uint8_t init[72];
+    memcpy(init, h0, 64);
+    uint8_t tmp[1024];
+    for (uint32_t lane = 0; lane < lanes; lane++) {
+        Store32LE(init + 64, 0);
+        Store32LE(init + 68, lane);
+        HPrime(init, sizeof(init), block(lane, 0), 1024);
+        Store32LE(init + 64, 1);
+        HPrime(init, sizeof(init), block(lane, 1), 1024);
+    }
+
+    uint8_t zero[1024] = {0};
+    uint8_t input[1024], inner[1024], addr[1024];
+    for (uint32_t r = 0; r < passes; r++) {
+        for (uint32_t sl = 0; sl < 4; sl++) {
+            for (uint32_t lane = 0; lane < lanes; lane++) {
+                bool indep = (r == 0 && sl < 2);  // Argon2id rule
+                // Positional address consumption (matches ref.c): block j
+                // consumes stream value j; chunks generated on demand.
+                std::vector<uint64_t> addrVals;
+                uint64_t addrCtr = 0;
+                if (indep) {
+                    memset(input, 0, sizeof(input));
+                    Store64LE(input + 0, r);
+                    Store64LE(input + 8, lane);
+                    Store64LE(input + 16, sl);
+                    Store64LE(input + 24, mprime);
+                    Store64LE(input + 32, passes);
+                    Store64LE(input + 40, y);
+                }
+                uint32_t j0 = (r == 0 && sl == 0) ? 2 : 0;
+                for (uint32_t j = j0; j < segLen; j++) {
+                    uint32_t c = sl * segLen + j;
+                    // Previous block: absolute (c-1) mod q, universally.
+                    // (For pass>0 slice>0 j=0 this is the previous slice's
+                    // last block, NOT the lane's last block.)
+                    uint32_t pc = (c + q - 1) % q;
+                    uint8_t* prev = block(lane, pc);
+                    uint32_t J1, J2;
+                    if (indep) {
+                        while (addrVals.size() <= j) {
+                            addrCtr++;
+                            Store64LE(input + 48, addrCtr);
+                            CompressG(zero, input, inner);
+                            CompressG(zero, inner, addr);
+                            for (int k = 0; k < 128; k++)
+                                addrVals.push_back(Load64LE(addr + k * 8));
+                        }
+                        uint64_t val = addrVals[j];
+                        J1 = (uint32_t)val;
+                        J2 = (uint32_t)(val >> 32);
+                    } else {
+                        J1 = Load32LE(prev + 0);
+                        J2 = Load32LE(prev + 4);
+                    }
+                    uint32_t l, z;
+                    if (!MapRef(lane, lanes, r, sl, segLen, j, J1, J2, l, z))
+                        return false;
+                    CompressG(prev, block(l, z), tmp);
+                    uint8_t* dst = block(lane, c);
+                    if (r == 0) {
+                        memcpy(dst, tmp, 1024);
+                    } else {
+                        for (int i = 0; i < 1024; i++) dst[i] ^= tmp[i];
+                    }
+                }
+            }
+        }
+    }
+    // Final: C = XOR of last column; tag = H'^outLen(C).
+    uint8_t C[1024] = {0};
+    for (uint32_t lane = 0; lane < lanes; lane++) {
+        uint8_t* b = block(lane, q - 1);
+        for (int i = 0; i < 1024; i++) C[i] ^= b[i];
+    }
+    HPrime(C, sizeof(C), out, outLen);
+    memset(C, 0, sizeof(C));
+    memset(tmp, 0, sizeof(tmp));
+    return true;
+}
+
+}  // namespace argon2
+}  // namespace stego
+// ---- rs.cpp ----
+// rs.cpp - Reed-Solomon RS(255,223) over GF(2^8), primitive poly 0x11D
+// (FORMAT.md section 2.6). Systematic data||parity blocks for the ROBUST
+// framing. Mirrors python/stegolib.py rs_* bit-for-bit (same generator
+// roots, same data||parity layout, same division direction).
+#include <stdint.h>
+
+namespace stego {
+namespace rs {
+
+namespace {
+struct Tables {
+    uint8_t exp_[512];
+    uint8_t log_[256];
+    uint8_t gen_[33];
+    Tables() {        unsigned x = 1;
+        for (int i = 0; i < 255; i++) {
+            exp_[i] = (uint8_t)x;
+            log_[x] = (uint8_t)i;
+            x <<= 1;
+            if (x & 0x100) x ^= 0x11D;
+        }
+        for (int i = 255; i < 512; i++) exp_[i] = exp_[i - 255];
+        // g(x) = PRODUCT_{i=0}^{31} (x + alpha^i), low-to-high coeffs.
+        uint8_t g[64] = {1};
+        size_t deg = 0;
+        for (int i = 0; i < 32; i++) {
+            uint8_t ng[64] = {0};
+            for (size_t a = 0; a <= deg; a++) {
+                if (!g[a]) continue;
+                ng[a] ^= Mul(g[a], exp_[i]);
+                ng[a + 1] ^= g[a];
+            }
+            deg++;
+            memcpy(g, ng, sizeof(g));
+        }
+        memcpy(gen_, g, 33);
+    }
+    static uint8_t Mul(uint8_t a, uint8_t b, const uint8_t* exp_,
+                       const uint8_t* log_) {
+        if (!a || !b) return 0;
+        return exp_[log_[a] + log_[b]];
+    }
+    uint8_t Mul(uint8_t a, uint8_t b) const { return Mul(a, b, exp_, log_); }
+    uint8_t Div(uint8_t a, uint8_t b) const {
+        if (!a) return 0;
+        int d = (int)log_[a] - (int)log_[b];
+        if (d < 0) d += 255;
+        return exp_[d];
+    }
+};
+const Tables& T() {
+    static Tables t;
+    return t;
+}
+}  // namespace
+
+// Systematic encode: 223B data -> 255B codeword (data || parity).
+// Long division eliminates from the high-degree end, so it consumes
+// the generator high-to-low (gen[32] = 1 zeroes each leading term).
+bool EncodeBlock(const uint8_t data[223], uint8_t cw[255]) {
+    const Tables& t = T();
+    uint8_t w[255];
+    memcpy(w, data, 223);
+    memset(w + 223, 0, 32);
+    for (int i = 0; i < 223; i++) {
+        uint8_t coef = w[i];
+        if (!coef) continue;
+        for (int j = 0; j < 33; j++) w[i + j] ^= t.Mul(t.gen_[32 - j], coef);
+    }
+    for (int i = 0; i < 223; i++)
+        if (w[i]) return false;  // not fully reduced (cannot happen)
+    memcpy(cw, data, 223);
+    memcpy(cw + 223, w + 223, 32);
+    return true;
+}
+
+static void Syndromes(const uint8_t* cw, uint8_t syn[32]) {
+    const Tables& t = T();
+    for (int i = 0; i < 32; i++) {
+        uint8_t a = t.exp_[i], s = 0, p = 1;
+        // Highest-first: R(x) = c_0 x^254 + ... (c[254-k] carries x^k).
+        for (int k = 0; k < 255; k++) {
+            s ^= t.Mul(cw[254 - k], p);
+            p = t.Mul(p, a);
+        }
+        syn[i] = s;
+    }
+}
+
+// Decode 255B codeword -> 223B data. False on uncorrectable input
+// (fail closed; miscorrections rechecked and rejected).
+bool DecodeBlock(const uint8_t cw[255], uint8_t data[223]) {
+    const Tables& t = T();
+    uint8_t syn[32];
+    Syndromes(cw, syn);
+    bool clean = true;
+    for (int i = 0; i < 32; i++)
+        if (syn[i]) {
+            clean = false;
+            break;
+        }
+    if (clean) {
+        memcpy(data, cw, 223);
+        return true;
+    }
+    // Berlekamp-Massey: error-locator Lambda (degree <= 16).
+    uint8_t lam[33] = {1}, prev[33] = {1};
+    size_t lamLen = 1, prevLen = 1;
+    size_t L = 0, m = 1;
+    uint8_t b = 1;
+    for (int n = 0; n < 32; n++) {
+        uint8_t d = syn[n];
+        for (size_t i = 1; i <= L && i < lamLen; i++)
+            d ^= t.Mul(lam[i], syn[n - i]);
+        if (d == 0) {
+            m++;
+            continue;
+        }
+        uint8_t nxt[64] = {0};
+        size_t nxtLen = lamLen + m;
+        if (nxtLen < prevLen + m) nxtLen = prevLen + m;
+        for (size_t i = 0; i < lamLen && i < sizeof(nxt); i++) nxt[i] = lam[i];
+        uint8_t coef = t.Div(d, b);
+        for (size_t i = 0; i < prevLen; i++) nxt[i + m] ^= t.Mul(coef, prev[i]);
+        if (2 * L <= (size_t)n) {
+            memcpy(prev, lam, lamLen);
+            prevLen = lamLen;
+            L = (size_t)n + 1 - L;
+            b = d;
+            m = 1;
+        } else {
+            m++;
+        }
+        if (L > 16) return false;  // beyond t: uncorrectable, fail fast
+        memcpy(lam, nxt, nxtLen < sizeof(lam) ? nxtLen : sizeof(lam));
+        lamLen = nxtLen < 33 ? nxtLen : 33;
+    }
+    if (L == 0 || L > 16) return false;
+    // Chien: test x = alpha^{-t}; hit means error at codeword 254-t.
+    int errs[16];
+    size_t nErrs = 0;
+    for (int tt = 0; tt < 255; tt++) {
+        uint8_t x = t.exp_[(255 - tt) % 255];
+        uint8_t y = 0, p = 1;
+        for (size_t i = 0; i <= L; i++) {
+            y ^= t.Mul(lam[i], p);
+            p = t.Mul(p, x);
+        }
+        if (y == 0) {
+            if (nErrs >= 16) return false;
+            errs[nErrs++] = 254 - tt;
+        }
+    }
+    if (nErrs != L) return false;
+    // Omega = (S*Lambda) mod x^32.
+    uint8_t omega[32] = {0};
+    for (int i = 0; i < 32; i++) {
+        uint8_t s = 0;
+        for (int j = 0; j <= i && j <= (int)L; j++)
+            s ^= t.Mul(lam[j], syn[i - j]);
+        omega[i] = s;
+    }
+    uint8_t out[255];
+    memcpy(out, cw, 255);
+    for (size_t e = 0; e < nErrs; e++) {
+        int j = errs[e];
+        uint8_t x = t.exp_[(254 - j + 255) % 255];  // X_k = alpha^{254-j}
+        uint8_t xi = t.Div(1, x);
+        uint8_t den = 0, xp = 1;  // Lambda'(x^{-1}), odd terms
+        for (size_t i = 1; i <= L; i += 2) {
+            den ^= t.Mul(lam[i], xp);
+            xp = t.Mul(t.Mul(xp, xi), xi);
+        }
+        if (den == 0) return false;
+        uint8_t num = 0, p = 1;  // Omega(x^{-1})
+        for (int i = 0; i < 32; i++) {
+            num ^= t.Mul(omega[i], p);
+            p = t.Mul(p, xi);
+        }
+        out[j] ^= t.Mul(num, t.Div(x, den));  // Forney, narrow-sense
+    }
+    uint8_t chk[32];
+    Syndromes(out, chk);
+    for (int i = 0; i < 32; i++)
+        if (chk[i]) return false;  // miscorrection guard
+    memcpy(data, out, 223);
+    return true;
+}
+
+}  // namespace rs
+}  // namespace stego
 // ---- api.cpp ----
 // api.cpp - Encode / Decode (single salted-envelope format) + C ABI.
 #include <cstdlib>
@@ -925,6 +1664,12 @@ std::vector<uint8_t> Pbkdf2(const uint8_t* pw, size_t pwLen,
                              uint32_t iter, size_t dkLen);
 uint32_t Crc32(const uint8_t* data, size_t len);
 }  // namespace sha
+namespace argon2 {
+bool Derive(const uint8_t* pw, size_t pwLen, const uint8_t* salt,
+            size_t saltLen, const uint8_t* secret, size_t secretLen,
+            const uint8_t* ad, size_t adLen, uint32_t passes,
+            uint32_t mem_kib, uint32_t lanes, uint8_t* out, size_t outLen);
+}  // namespace argon2
 namespace codec {
 void PutU16(std::vector<uint8_t>& b, uint16_t v);
 void PutU32(std::vector<uint8_t>& b, uint32_t v);
@@ -942,12 +1687,28 @@ uint32_t CostBucket(uint32_t cost, uint32_t q);
 std::vector<uint32_t> CandidateOrderV4(const std::vector<uint8_t>& rgb,
                                        uint32_t w, uint32_t h, uint32_t seed,
                                        uint32_t q, bool adaptive);
+void OrderCostsV4(const std::vector<uint8_t>& rgb, uint32_t w, uint32_t h,
+                  uint32_t seed, uint32_t q, bool adaptive,
+                  std::vector<uint32_t>& order, std::vector<uint8_t>& costs);
+void StcSubmatrix(uint32_t seed, uint8_t sub[8]);
+bool StcEncode(const uint8_t* cover, const uint8_t* costs, size_t n,
+               const uint8_t* msg, size_t msgLen, const uint8_t sub[8],
+               uint8_t* flips);
+void StcExtract(const uint8_t* y, size_t mBits, const uint8_t sub[8],
+                uint8_t* msg, size_t msgLen);
+void ApplyFlipsV4(std::vector<uint8_t>& rgb, const std::vector<uint32_t>& order,
+                   const uint8_t* flips, size_t n, uint64_t seed64,
+                   size_t slotBase);
 bool EmbedV4(std::vector<uint8_t>& rgb, const std::vector<uint32_t>& order,
-             const uint8_t* src, size_t srcLen, bool robust, uint64_t seed64,
+             const uint8_t* src, size_t srcLen, uint64_t seed64,
              size_t slotBase);
 bool ReadV4(const std::vector<uint8_t>& rgb, const std::vector<uint32_t>& order,
-            size_t nBytes, bool robust, std::vector<uint8_t>& out);
+            size_t nBytes, std::vector<uint8_t>& out);
 }  // namespace codec
+namespace rs {
+bool EncodeBlock(const uint8_t data[223], uint8_t cw[255]);
+bool DecodeBlock(const uint8_t cw[255], uint8_t data[223]);
+}  // namespace rs
 namespace aead {
 void ChaChaBlock(const uint8_t key[32], const uint8_t nonce[12],
                  uint32_t counter, uint8_t out[64]);
@@ -1157,6 +1918,40 @@ static bool DecodeEnvelope(const Image& img, const uint8_t* hdr,
     return true;
 }
 
+// RS framing (FORMAT.md §2.6): pad to 223B blocks, encode, interleave.
+// comp_size = nblocks*255. Inverse fails closed on any undecodable block.
+static bool RsProtect(const std::vector<uint8_t>& data,
+                      std::vector<uint8_t>& stream, size_t& nblocks) {
+    if (data.empty()) return false;
+    nblocks = (data.size() + 222) / 223;
+    std::vector<std::vector<uint8_t>> cws(nblocks,
+                                          std::vector<uint8_t>(255));
+    for (size_t b = 0; b < nblocks; b++) {
+        uint8_t blk[223] = {0};
+        size_t base = b * 223;
+        size_t take = data.size() - base < 223 ? data.size() - base : 223;
+        memcpy(blk, data.data() + base, take);
+        if (!rs::EncodeBlock(blk, cws[b].data())) return false;
+    }
+    stream.assign(nblocks * 255, 0);
+    for (size_t s = 0; s < nblocks * 255; s++)
+        stream[s] = cws[s % nblocks][s / nblocks];
+    return true;
+}
+
+static bool RsUnprotect(const std::vector<uint8_t>& stream, size_t nblocks,
+                        std::vector<uint8_t>& data) {
+    if (nblocks == 0 || stream.size() != nblocks * 255) return false;
+    data.assign(nblocks * 223, 0);
+    std::vector<uint8_t> cw(255), part(223);
+    for (size_t b = 0; b < nblocks; b++) {
+        for (size_t k = 0; k < 255; k++) cw[k] = stream[b + k * nblocks];
+        if (!rs::DecodeBlock(cw.data(), part.data())) return false;
+        memcpy(data.data() + b * 223, part.data(), 223);
+    }
+    return true;
+}
+
 // --- v4 envelope decode (64B header, AEAD, adaptive placement) ---
 static bool DecodeEnvelopeV4(const Image& img, const uint8_t* hdr,
                              const std::string& password,
@@ -1171,34 +1966,94 @@ static bool DecodeEnvelopeV4(const Image& img, const uint8_t* hdr,
     uint32_t costq = (uint32_t)hdr[20] | ((uint32_t)hdr[21] << 8) |
                      ((uint32_t)hdr[22] << 16) | ((uint32_t)hdr[23] << 24);
     const uint8_t* salt = hdr + 24;  // salt field (bytes [24..40))
+    uint32_t kdfId = (uint32_t)hdr[40] | ((uint32_t)hdr[41] << 8) |
+                     ((uint32_t)hdr[42] << 16) | ((uint32_t)hdr[43] << 24);
     uint32_t hcrc = (uint32_t)hdr[44] | ((uint32_t)hdr[45] << 8) |
                     ((uint32_t)hdr[46] << 16) | ((uint32_t)hdr[47] << 24);
+    uint32_t kdfM = (uint32_t)hdr[48] | ((uint32_t)hdr[49] << 8) |
+                    ((uint32_t)hdr[50] << 16) | ((uint32_t)hdr[51] << 24);
+    uint32_t kdfT = (uint32_t)hdr[52] | ((uint32_t)hdr[53] << 8) |
+                    ((uint32_t)hdr[54] << 16) | ((uint32_t)hdr[55] << 24);
+    uint32_t kdfLanes = (uint32_t)hdr[56] | ((uint32_t)hdr[57] << 8) |
+                        ((uint32_t)hdr[58] << 16) | ((uint32_t)hdr[59] << 24);
     if (stego::sha::Crc32(hdr, 44) != hcrc) return false;
     if (flags & STEGO_F_COMPRESS) return false;
     if (!(flags & STEGO_F_ENCRYPT) || !(flags & STEGO_F_AUTH)) return false;
+    if (kdfId == 0) {
+        if (kdfM != 0 || kdfT != 0 || kdfLanes != 0) return false;
+    } else if (kdfId == 1) {
+        // Bounds cap decoder memory/time on hostile headers (DoS gate).
+        if (kdfM < 8 || kdfM > 1048576 || kdfT < 1 || kdfT > 16 ||
+            kdfLanes != 1)
+            return false;
+    } else {
+        return false;
+    }
     if (costq < 1 || costq > 16) return false;
-    if (orig < 1 || comp != orig + 4 + STEGO_V4_TAG_LEN) return false;
+    if (orig < 1) return false;
     bool adaptive = (flags & STEGO_F_ADAPTIVE) != 0;
     bool robust = (flags & STEGO_F_ROBUST) != 0;
+    if (robust) {
+        size_t expect = ((size_t)orig + 20 + 222) / 223 * 255;
+        if (comp != expect) return false;
+    } else if (comp != orig + 4 + STEGO_V4_TAG_LEN) {
+        return false;
+    }
 
-    std::vector<uint8_t> dk = stego::sha::Pbkdf2(
-        (const uint8_t*)password.data(), password.size(),
-        salt, STEGO_V4_SALT_LEN, STEGO_V4_PBKDF2_ITER, STEGO_V4_KDF_OUT);
+    std::vector<uint8_t> dk;
+    if (kdfId == 0) {
+        dk = stego::sha::Pbkdf2(
+            (const uint8_t*)password.data(), password.size(),
+            salt, STEGO_V4_SALT_LEN, STEGO_V4_PBKDF2_ITER, STEGO_V4_KDF_OUT);
+    } else {
+        dk.resize(STEGO_V4_KDF_OUT);
+        if (!stego::argon2::Derive(
+                (const uint8_t*)password.data(), password.size(),
+                salt, STEGO_V4_SALT_LEN, NULL, 0, NULL, 0, kdfT, kdfM,
+                kdfLanes, dk.data(), dk.size()))
+            return false;
+    }
 
     uint32_t nPx = img.w * img.h;
     if (nPx <= STEGO_V4_HEADER_PX) return false;
-    size_t needSlots = (size_t)comp * 8 * (robust ? 3 : 1);
+    bool stc = (flags & STEGO_F_STC) != 0;
+    size_t needSlots = (size_t)comp * 8 + (stc ? STEGO_STC_H : 0);
     if (needSlots > ((size_t)nPx - STEGO_V4_HEADER_PX) * 2) return false;
     std::vector<uint32_t> order = stego::codec::CandidateOrderV4(
         img.rgb, img.w, img.h, seed, costq, adaptive);
     std::vector<uint8_t> body;
-    if (!stego::codec::ReadV4(img.rgb, order, comp, robust, body))
+    if (stc) {
+        size_t n = (size_t)comp * 8 + STEGO_STC_H;
+        std::vector<uint8_t> y(n);
+        for (size_t s = 0; s < n; s++) {
+            uint32_t ch = order[s / 2] * 3 + (s % 2 == 0 ? 0 : 2);
+            y[s] = img.rgb[ch] & 1;
+        }
+        uint8_t sub[8];
+        stego::codec::StcSubmatrix(seed, sub);
+        body.assign(comp, 0);
+        stego::codec::StcExtract(y.data(), (size_t)comp * 8, sub,
+                                 body.data(), comp);
+    } else if (!stego::codec::ReadV4(img.rgb, order, comp, body)) {
         return false;
-    std::vector<uint8_t> pt(comp - STEGO_V4_TAG_LEN);
+    }
+    if (robust) {
+        if (comp % 255 != 0) return false;
+        size_t nblocks = comp / 255;
+        std::vector<uint8_t> cat;
+        if (!RsUnprotect(body, nblocks, cat)) return false;
+        if (cat.size() < (size_t)orig + 20) return false;
+        body.assign(cat.begin(), cat.begin() + orig + 20);  // strip padding
+    }
+    // From here body.size() is the AEAD length (orig+20); comp was the
+    // wire length (equal for non-robust, codeword length for robust).
+    size_t cLen = body.size();
+    if (cLen != (size_t)orig + 4 + STEGO_V4_TAG_LEN) return false;
+    std::vector<uint8_t> pt(cLen - STEGO_V4_TAG_LEN);
     if (!stego::aead::AeadDecrypt(dk.data(), dk.data() + 32, hdr,
                                   STEGO_V4_HEADER_LEN, body.data(),
-                                  comp - STEGO_V4_TAG_LEN,
-                                  body.data() + comp - STEGO_V4_TAG_LEN,
+                                  cLen - STEGO_V4_TAG_LEN,
+                                  body.data() + cLen - STEGO_V4_TAG_LEN,
                                   pt.data()))
         return false;
     uint32_t dcrc = (uint32_t)pt[0] | ((uint32_t)pt[1] << 8) |
@@ -1232,7 +2087,7 @@ bool Decode(const Image& img, const std::string& password,
     for (uint32_t i = 0; i < STEGO_V4_HEADER_PX; i++) hdrOrder.push_back(i);
     std::vector<uint8_t> hdr64;
     if (!stego::codec::ReadV4(img.rgb, hdrOrder, STEGO_V4_HEADER_LEN,
-                              false, hdr64))
+                              hdr64))
         return false;
     memcpy(hdr, hdr64.data(), STEGO_V4_HEADER_LEN);
     if (hdr[0] != STEGO_MAGIC_0 || hdr[1] != STEGO_MAGIC_1 ||
@@ -1244,12 +2099,18 @@ bool Decode(const Image& img, const std::string& password,
 
 size_t CapacityV4(uint32_t w, uint32_t h, bool robust) {
     // 256 header pixels reserved (R/B slots); body carries 2 bits/px.
+    // Robust pays RS(255,223) framing on the wire (AEAD overhead inside).
     size_t nPx = (size_t)w * h;
     if (nPx <= STEGO_V4_HEADER_PX) return 0;
-    size_t slots = (nPx - STEGO_V4_HEADER_PX) * 2;
-    if (robust) slots /= 3;
-    if (slots < (4 + STEGO_V4_TAG_LEN) * 8) return 0;
-    return (slots - (4 + STEGO_V4_TAG_LEN) * 8) / 8;
+    size_t cwBytes = ((nPx - STEGO_V4_HEADER_PX) * 2) / 8;
+    if (!robust) {
+        if (cwBytes < 4 + STEGO_V4_TAG_LEN) return 0;
+        return cwBytes - (4 + STEGO_V4_TAG_LEN);
+    }
+    size_t nblocks = cwBytes / 255;
+    if (nblocks == 0) return 0;
+    size_t data = nblocks * 223;
+    return data > 4 + STEGO_V4_TAG_LEN ? data - (4 + STEGO_V4_TAG_LEN) : 0;
 }
 
 bool EncodeV4(const Image& cover, const uint8_t* payload, size_t payloadLen,
@@ -1259,6 +2120,17 @@ bool EncodeV4(const Image& cover, const uint8_t* payload, size_t payloadLen,
     if (cover.rgb.size() < (size_t)cover.w * cover.h * 3) return false;
     if (opt.password.empty()) return false;  // v4 always encrypted+authed
     if (opt.costq < 1 || opt.costq > 16) return false;
+    uint32_t kdfId = (uint32_t)opt.kdf;
+    uint32_t kdfM = opt.kdf_m_kib, kdfT = opt.kdf_time, kdfLanes = opt.kdf_lanes;
+    if (kdfId == 0) {
+        kdfM = kdfT = kdfLanes = 0;
+    } else if (kdfId == 1) {
+        if (kdfM < 8 || kdfM > 1048576 || kdfT < 1 || kdfT > 16 ||
+            kdfLanes != 1)
+            return false;
+    } else {
+        return false;
+    }
     uint32_t nPx = cover.w * cover.h;
     if (nPx <= STEGO_V4_HEADER_PX) return false;
     uint32_t seed = opt.seed;
@@ -1276,11 +2148,27 @@ bool EncodeV4(const Image& cover, const uint8_t* payload, size_t payloadLen,
         std::random_device rd;
         for (size_t i = 0; i < sizeof(salt); i++) salt[i] = (uint8_t)rd();
     }
-    std::vector<uint8_t> dk = sha::Pbkdf2(
-        (const uint8_t*)opt.password.data(), opt.password.size(),
-        salt, sizeof(salt), STEGO_V4_PBKDF2_ITER, STEGO_V4_KDF_OUT);
+    std::vector<uint8_t> dk;
+    if (kdfId == 0) {
+        dk = sha::Pbkdf2(
+            (const uint8_t*)opt.password.data(), opt.password.size(),
+            salt, sizeof(salt), STEGO_V4_PBKDF2_ITER, STEGO_V4_KDF_OUT);
+    } else {
+        dk.resize(STEGO_V4_KDF_OUT);
+        if (!argon2::Derive(
+                (const uint8_t*)opt.password.data(), opt.password.size(),
+                salt, sizeof(salt), NULL, 0, NULL, 0, kdfT, kdfM, kdfLanes,
+                dk.data(), dk.size()))
+            return false;
+    }
 
-    uint32_t comp = (uint32_t)payloadLen + 4 + STEGO_V4_TAG_LEN;
+    uint32_t cLen = (uint32_t)payloadLen + 4 + STEGO_V4_TAG_LEN;  // AEAD bytes
+    uint32_t comp = cLen;
+    size_t nblocks = 0;
+    if (opt.robust) {
+        nblocks = (cLen + 222) / 223;
+        comp = (uint32_t)(nblocks * 255);  // RS codeword bytes on wire
+    }
     std::vector<uint8_t> hdr;
     hdr.push_back(STEGO_MAGIC_0);
     hdr.push_back(STEGO_MAGIC_1);
@@ -1291,16 +2179,20 @@ bool EncodeV4(const Image& cover, const uint8_t* payload, size_t payloadLen,
     if (opt.scatter) flags |= STEGO_F_SCATTER;
     if (opt.adaptive) flags |= STEGO_F_ADAPTIVE;
     if (opt.robust) flags |= STEGO_F_ROBUST;
+    if (opt.stc) flags |= STEGO_F_STC;
     codec::PutU16(hdr, flags);
     codec::PutU32(hdr, seed);
     codec::PutU32(hdr, (uint32_t)payloadLen);
     codec::PutU32(hdr, comp);
     codec::PutU32(hdr, opt.costq);
     hdr.insert(hdr.end(), salt, salt + sizeof(salt));
-    codec::PutU32(hdr, 0);
+    codec::PutU32(hdr, kdfId);
     uint32_t hcrc = sha::Crc32(hdr.data(), 44);
     codec::PutU32(hdr, hcrc);
-    hdr.insert(hdr.end(), 16, 0);
+    codec::PutU32(hdr, kdfM);
+    codec::PutU32(hdr, kdfT);
+    codec::PutU32(hdr, kdfLanes);
+    codec::PutU32(hdr, 0);
 
     std::vector<uint8_t> pt(4 + payloadLen);
     uint32_t dcrc = sha::Crc32(payload, payloadLen);
@@ -1309,15 +2201,23 @@ bool EncodeV4(const Image& cover, const uint8_t* payload, size_t payloadLen,
     pt[2] = (uint8_t)(dcrc >> 16);
     pt[3] = (uint8_t)(dcrc >> 24);
     memcpy(pt.data() + 4, payload, payloadLen);
-    std::vector<uint8_t> body(comp);
+    std::vector<uint8_t> ciph(cLen);
     uint8_t tag[STEGO_V4_TAG_LEN];
     aead::AeadEncrypt(dk.data(), dk.data() + 32, hdr.data(), hdr.size(),
-                      pt.data(), pt.size(), body.data(), tag);
-    memcpy(body.data() + comp - STEGO_V4_TAG_LEN, tag, STEGO_V4_TAG_LEN);
+                      pt.data(), pt.size(), ciph.data(), tag);
+    memcpy(ciph.data() + cLen - STEGO_V4_TAG_LEN, tag, STEGO_V4_TAG_LEN);
+    std::vector<uint8_t> body;
+    if (opt.robust) {
+        if (!RsProtect(ciph, body, nblocks)) return false;
+    } else {
+        body.swap(ciph);
+    }
 
-    std::vector<uint32_t> order = codec::CandidateOrderV4(
-        cover.rgb, cover.w, cover.h, seed, opt.costq, opt.adaptive);
-    size_t needSlots = (size_t)comp * 8 * (opt.robust ? 3 : 1);
+    std::vector<uint32_t> order;
+    std::vector<uint8_t> ocosts;
+    codec::OrderCostsV4(cover.rgb, cover.w, cover.h, seed, opt.costq,
+                        opt.adaptive, order, ocosts);
+    size_t needSlots = (size_t)comp * 8 + (opt.stc ? STEGO_STC_H : 0);
     if (needSlots > order.size() * 2) return false;
     uint64_t seed64 = (uint64_t)seed ^
                       ((uint64_t)salt[0] | ((uint64_t)salt[1] << 8) |
@@ -1327,12 +2227,28 @@ bool EncodeV4(const Image& cover, const uint8_t* payload, size_t payloadLen,
     out.w = cover.w;
     out.h = cover.h;
     out.rgb = cover.rgb;
-    if (!codec::EmbedV4(out.rgb, hdrOrder, hdr.data(), hdr.size(), false,
+    if (!codec::EmbedV4(out.rgb, hdrOrder, hdr.data(), hdr.size(),
                         seed64, 0))
         return false;
-    if (!codec::EmbedV4(out.rgb, order, body.data(), body.size(), opt.robust,
-                        seed64, (size_t)STEGO_V4_HEADER_LEN * 8))
+    if (opt.stc) {
+        uint8_t sub[8];
+        codec::StcSubmatrix(seed, sub);
+        size_t n = (size_t)comp * 8 + STEGO_STC_H;
+        std::vector<uint8_t> coverBits(n), slotCosts(n), flips(n);
+        for (size_t s = 0; s < n; s++) {
+            uint32_t ch = order[s / 2] * 3 + (s % 2 == 0 ? 0 : 2);
+            coverBits[s] = cover.rgb[ch] & 1;
+            slotCosts[s] = ocosts[s / 2];
+        }
+        if (!codec::StcEncode(coverBits.data(), slotCosts.data(), n,
+                              body.data(), body.size(), sub, flips.data()))
+            return false;
+        codec::ApplyFlipsV4(out.rgb, order, flips.data(), n, seed64,
+                            (size_t)STEGO_V4_HEADER_LEN * 8);
+    } else if (!codec::EmbedV4(out.rgb, order, body.data(), body.size(),
+                               seed64, (size_t)STEGO_V4_HEADER_LEN * 8)) {
         return false;
+    }
     return true;
 }
 
@@ -1379,6 +2295,11 @@ int stego_encode_v4(const stego_image_t* cover, const uint8_t* payload,
     o.adaptive = opt->adaptive != 0;
     o.robust = opt->robust != 0;
     o.costq = opt->costq ? opt->costq : 8;
+    o.stc = opt->stc != 0;
+    o.kdf = opt->kdf;
+    o.kdf_m_kib = opt->kdf_m_kib ? opt->kdf_m_kib : 65536;
+    o.kdf_time = opt->kdf_time ? opt->kdf_time : 3;
+    o.kdf_lanes = opt->kdf_lanes ? opt->kdf_lanes : 1;
     stego::Image res;
     if (!stego::EncodeV4(c, payload, payload_len, o, res)) {
         return o.password.empty() ? STEGO_C_ERR_PARAM : STEGO_C_ERR_CAPACITY;

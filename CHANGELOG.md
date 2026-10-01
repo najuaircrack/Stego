@@ -3,6 +3,34 @@
 All notable changes to the stego library. Format: Keep a Changelog.
 Versions: semantic (`VERSION` file is authoritative).
 
+## [4.1.0]
+
+### Added (hardening pass; v3/v4.0 bytes still decode identically)
+- KDF agility + Argon2id (RFC 9106, validated against its vectors and
+  libargon2 on all three variants): header `kdf_id/m/time/lanes`
+  (PBKDF2 legacy `0`, Argon2id `1`, bounds-checked); default new
+  encodes to Argon2id m=64MiB/t=3.
+- S-UNIWARD-style wavelet costs (integer 5/3 lifting, green channel)
+  replacing variance; green-invariance preserved, no retries.
+- Syndrome-trellis coding (constraint height 7, key-derived submatrix,
+  `F_STC` flag default on; greedy kept via flag off).
+- RS(255,223) + full interleave replacing repetition-3 for ROBUST.
+- `tests/fuzz_decode.cpp` (libFuzzer, Clang) + `STEGO_SANITIZE` /
+  `STEGO_FUZZ` CMake options + sanitizer CI job + portable malformed
+  battery (ASan-clean).
+- Benchmark: `--covers` natural corpus, SPAM686 + ensemble probe,
+  STC-vs-greedy isolation; `ANALYSIS.md` rewritten with measured
+  numbers (RS blind on v4, SPAM gap for STC).
+
+### Fixed
+- Argon2 `prev`-block rule: universal absolute `(c-1) mod q`
+  (pass>0 slice>0 first blocks read a stale block before).
+- Blake2b SIGMA table completed to 12 rounds (rounds 10-11 repeat 0-1).
+- H-prime short-output branch hashes full input (was truncating >64B).
+- RS polynomial direction (generator high-to-low) + syndrome/Chien/
+  Forney index conventions made mutually consistent.
+- C++ v4 header probe uses R/B slots (was 3-channel: instant reject).
+
 ## [4.0.0]
 
 ### Added (v4 envelope; v3 frozen, decoders accept both)

@@ -36,8 +36,13 @@ struct OptionsV4 {
     std::string password;     // REQUIRED, non-empty
     bool scatter = true;      // policy signal (keyed order always applies)
     bool adaptive = true;     // cost-ordered placement (green-invariant)
-    bool robust = false;      // repetition-3 + majority vote
+    bool robust = false;      // RS-ECC framing (§2.6)
     uint32_t costq = 8;       // cost buckets 1..16
+    bool stc = true;          // syndrome-trellis coding (§2.4b)
+    int kdf = 1;              // 0 = PBKDF2-210k (fast), 1 = Argon2id
+    uint32_t kdf_m_kib = 65536;  // Argon2id memory (KiB)
+    uint32_t kdf_time = 3;       // Argon2id passes
+    uint32_t kdf_lanes = 1;      // Argon2id lanes (1 supported)
 };
 
 // Encode with the v4 envelope. Returns false on capacity/parameter

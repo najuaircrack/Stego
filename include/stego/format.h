@@ -29,6 +29,7 @@
 #define STEGO_V4_KDF_OUT 96     // 32 msg-key + 12 nonce + 52 reserved
 #define STEGO_V4_TAG_LEN 16
 #define STEGO_V4_COSTQ_DEFAULT 8
+#define STEGO_STC_H 7  // STC constraint height (128 trellis states)
 
 #define STEGO_SALT_LEN 16
 #define STEGO_PBKDF2_ITER 100000
@@ -39,6 +40,7 @@
 #define STEGO_F_ENCRYPT  0x0004
 #define STEGO_F_AUTH     0x0008
 #define STEGO_F_ADAPTIVE 0x0010  // v4: cost-ordered placement
-#define STEGO_F_ROBUST   0x0020  // v4: repetition-3 + majority vote
+#define STEGO_F_ROBUST   0x0020  // v4: RS-ECC framing (§2.6)
+#define STEGO_F_STC      0x0040  // v4: syndrome-trellis coding (§2.4b)
 
 #define STEGO_HMAC_LEN 32
