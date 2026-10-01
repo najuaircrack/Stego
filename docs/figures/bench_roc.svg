@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="960" height="500" viewBox="0 0 960 500" font-family="ui-monospace, Consolas, monospace">
 <rect x="0" y="0" width="960" height="500" fill="#0d1117"/>
-<text x="20" y="30" font-size="19" font-weight="bold" fill="#ffffff">ROC — clean vs stego, 0.25bpp, 12 synthetic covers</text>
+<text x="20" y="30" font-size="19" font-weight="bold" fill="#ffffff">ROC: clean vs stego, 0.25bpp, 12 synthetic covers</text>
 <line x1="70" y1="400" x2="730" y2="400" stroke="#8b949e" stroke-width="2"/>
 <line x1="70" y1="60" x2="70" y2="400" stroke="#8b949e" stroke-width="2"/>
 <line x1="70" y1="400" x2="730" y2="60" stroke="#4b5871" stroke-dasharray="6,5"/>

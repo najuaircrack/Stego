@@ -582,7 +582,7 @@ def main():
         m = label.split()[0]
         styled.append((label, pts, palette.get(m, '#333333'), dashed))
     svg_roc(os.path.join(FIGDIR, 'bench_roc.svg'),
-            'ROC — clean vs stego, %s, %d %s covers' % (BPPS[0][1], n_cov, cover_kind),
+            'ROC: clean vs stego, %s, %d %s covers' % (BPPS[0][1], n_cov, cover_kind),
             styled, 'solid=v4 (AEAD+adaptive) · dashed=v3 (CTR+LSB replacement)')
 
     # AUC bars per bpp
@@ -599,7 +599,7 @@ def main():
             values[m]['spam'] = e['probe_spam_auc']
         svg_bars(os.path.join(FIGDIR, 'bench_auc_%s.svg' % blabel.replace(
             '.', '')),
-            'Detector AUC (0.5 = blind) — %s, %d %s covers' % (blabel, n_cov, cover_kind),
+            'Detector AUC (0.5 = blind): %s, %d %s covers' % (blabel, n_cov, cover_kind),
             groups, series, values,
             'AUC per detector · probe = 4-feature CV logistic · '
             'spam = SPAM686 CV logistic (overparameterized by design)')

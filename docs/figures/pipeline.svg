@@ -30,7 +30,7 @@
     <text x="40" y="374" class="n">symmetric LSB matching · saturation-safe at 0/255</text>
     <rect x="24" y="398" width="420" height="52" class="box" fill="#3f7fbf" stroke="#2c5f96"/>
     <text x="40" y="420" class="w">stego PNG (carrier pixels, RGB)</text>
-    <text x="40" y="438" class="w" opacity="0.85">PNG only — LSB layout undefined for lossy formats</text>
+    <text x="40" y="438" class="w" opacity="0.85">PNG only. LSB layout undefined for lossy formats</text>
   </g>
   <!-- arrows encode -->
   <g stroke="#4b5871" stroke-width="2" marker-end="none">
@@ -58,7 +58,7 @@
     <text x="532" y="356" class="b">split data_crc32 ‖ payload · verify both CRCs + sizes</text>
     <text x="532" y="374" class="n">comp == orig + 20 exactly · orig ≥ 1 · capacity bounds</text>
     <rect x="516" y="398" width="420" height="52" class="box" fill="#3aa655" stroke="#247a3d"/>
-    <text x="532" y="420" class="w">payload bytes (still untrusted — never execute blindly)</text>
+    <text x="532" y="420" class="w">payload bytes (still untrusted, so never execute blindly)</text>
     <text x="532" y="438" class="w" opacity="0.85">library decodes; execution is the operator's decision</text>
   </g>
   <g stroke="#4b5871" stroke-width="2">
@@ -67,7 +67,7 @@
     <line x1="726" y1="386" x2="726" y2="396"/>
   </g>
 
-  <text x="24" y="492" class="s">placement detail (ADAPTIVE) — provably stable, no retries</text>
+  <text x="24" y="492" class="s">placement detail (ADAPTIVE): provably stable, no retries</text>
   <text x="24" y="514" class="n">cost = 3×3 variance of GREEN (integer) → Q buckets, texture-first → embed R/B only → green bit-exact →</text>
   <text x="24" y="532" class="n">decode-side costs equal encode-side costs exactly: bucket flips impossible, order reproduces bit-exact</text>
 </svg>

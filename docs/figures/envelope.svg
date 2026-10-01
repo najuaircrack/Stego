@@ -10,7 +10,7 @@
   <text x="24" y="34" class="t">STG2 envelope headers (to scale, 14 px / byte)</text>
 
   <!-- v3 bar: 44B -->
-  <text x="24" y="72" class="s">v3 — 44 bytes, header pixels [0,118)</text>
+  <text x="24" y="72" class="s">v3, 44 bytes, header pixels [0,118)</text>
   <g transform="translate(24,84)">
     <rect x="0" width="56" height="34" fill="#d94f4f"/><text x="28" y="21" text-anchor="middle" class="f">magic 4</text>
     <rect x="56" width="28" height="34" fill="#7a8699"/><text x="70" y="21" text-anchor="middle" class="f">ver</text>
@@ -26,7 +26,7 @@
   <text x="24" y="162" class="fd">body: ciphertext + data_crc32 [+ HMAC-32] · LSB replacement · optional scatter</text>
 
   <!-- v4 bar: 64B -->
-  <text x="24" y="204" class="s">v4 — 64 bytes, header pixels [0,256) R/B only</text>
+  <text x="24" y="204" class="s">v4, 64 bytes, header pixels [0,256) R/B only</text>
   <g transform="translate(24,216)">
     <rect x="0" width="56" height="34" fill="#d94f4f"/><text x="28" y="21" text-anchor="middle" class="f">magic 4</text>
     <rect x="56" width="28" height="34" fill="#7a8699"/><text x="70" y="21" text-anchor="middle" class="f">ver</text>

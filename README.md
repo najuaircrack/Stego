@@ -10,7 +10,7 @@
 
 ![Red pixels mark where a 16 KiB payload lands: textured regions carry it, smooth regions stay exact](docs/figures/selection_overlay.png)
 
-*One standard API, two envelopes: **v4** (modern default — AEAD encryption, adaptive ternary embedding) and **v3** (legacy, frozen, still readable). You pick the writer; reading is automatic by version.*
+*One standard API, two envelopes: **v4** (the modern default, with authenticated encryption and adaptive embedding) and **v3** (legacy, frozen, still readable). You pick the writer; reading is automatic by version.*
 
 </div>
 
@@ -37,7 +37,7 @@ python python/stego_cli.py reveal out.png -o back.bin --password "long random ph
 # tells you instead of handing you partial bytes.
 ```
 
-Need the legacy layout (old decoders, constrained tooling)? One flag —
+Need the legacy layout (old decoders, constrained tooling)? One flag,
 everything else stays identical:
 
 ```powershell
@@ -45,66 +45,72 @@ python python/stego_cli.py hide payload.exe --cover photo.png -o out.png --envel
 python python/stego_cli.py reveal out.png -o back.bin [--password ...]
 ```
 
-Typical uses: bundling a payload with an installer graphic, watermarking
-builds with their own metadata, moving a config through a channel that only
-allows images, CTF and security training. If you need the bytes to *run*
-somewhere, that's your code's job — this library hands you bytes and stops.
-(How to run them is covered below — it is a separate step on purpose.)
+People use it to bundle a payload with an installer graphic, stamp builds
+with their own metadata, slip a config through a channel that only allows
+images, or practice for CTFs and security training. If you need those bytes
+to *run* somewhere, that part is on your code. This library hands you bytes
+and stops there. (Running them is covered below. It stays a separate step
+on purpose.)
 
 ## How it works
 
-Each pixel holds 3 color values (red, green, blue). The v4 envelope changes
-only red and blue, by ±1 at most — invisible to eyes, readable to code —
-while green stays bit-exact so both sides agree *exactly* on where data
-lives, without retries or second-guessing. Texture carries the payload;
-smooth sky stays untouched:
+![Put a file in, get the same file out: hide turns your file and a cover photo into a normal PNG, reveal turns it back](docs/figures/flow.svg)
+
+Every pixel holds 3 color values (red, green, blue). The v4 envelope nudges
+only red and blue, by 1 at most. Your eyes cannot see it, but code can read
+it. Green stays bit-exact, so both sides agree on exactly where the data
+lives, with no retries and no second-guessing. Texture carries the payload
+and smooth sky stays untouched:
 
 ![Cost buckets on a real cover: dark = smooth and expensive, bright = textured and cheap](docs/figures/cost_buckets.png)
 
-Costs come from a wavelet texture map plus a syndrome-trellis coder that
-finds the globally cheapest flip pattern instead of flipping greedily.
-Before hiding, your file gets authenticated encryption (wrong password or
-any tampering = clean failure, never garbage), and the full 64-byte header
-is covered by the authentication tag:
+A texture map scores every pixel (smooth sky costs more, busy texture
+costs less), then a coder finds the cheapest overall flip pattern instead
+of flipping greedily.
+Before anything is hidden, your file is encrypted and authenticated. A
+wrong password or any tampering gives you a clean failure, never garbage.
+The full 64-byte header is covered by the authentication tag too:
 
 ![v3 vs v4 header layouts, to scale](docs/figures/envelope.svg)
 
-The full byte-level layout is in [`docs/FORMAT.md`](docs/FORMAT.md) —
-written so a second implementation in any language can match it exactly
-(C++, Python, and Rust already do; they prove it against each other in
-tests). The data flow, both directions:
+The full byte-level layout lives in [`docs/FORMAT.md`](docs/FORMAT.md).
+It is written so anyone can reimplement it in any language and match bit
+for bit. (C++, Python, and Rust already do, and the tests prove they
+agree.) Here is the data flow in both directions:
 
 ![v4 encode/decode pipeline](docs/figures/pipeline.svg)
 
-Be straight with yourself about one thing: this hides data from *casual*
+Be straight with yourself about one thing. This hides data from casual
 inspection, not from every analysis. v4 measurably beats v3 against
-classical detectors (RS analysis goes blind, see below) — but a global
-chi-square test still sees high-rate embeds, and no one here claims
+classical detectors (RS analysis goes blind, see below), but a global
+chi-square test still spots high-rate embeds, and nobody here claims
 otherwise. If your threat model includes statistical testing, read
 [`docs/SECURITY.md`](docs/SECURITY.md) and [`docs/ANALYSIS.md`](docs/ANALYSIS.md)
-first — numbers included, no invisibility claims.
+first. Numbers included, no invisibility claims.
 
 ## Measured, not claimed
 
-Classical-detector benchmark (`python/bench_steganalysis.py`, 12 covers ×
-5 methods × 2 rates, AUC 0.5 = blind). Full tables in [`docs/ANALYSIS.md`](docs/ANALYSIS.md):
+We benchmarked classical detectors (`python/bench_steganalysis.py`: 12
+covers, 5 methods, 2 rates; AUC 0.5 means blind). Full tables live in
+[`docs/ANALYSIS.md`](docs/ANALYSIS.md):
 
-![ROC curves, clean vs stego at 0.25 bpp — v4 solid, v3 dashed](docs/figures/bench_roc.svg)
+![ROC curves, clean vs stego at 0.25 bpp: v4 solid, v3 dashed](docs/figures/bench_roc.svg)
 
-![Detector AUC at 0.25 bpp — v4adapt (green) vs v3 (blue)](docs/figures/bench_auc_025bpp.svg)
+![Detector AUC at 0.25 bpp: v4adapt (green) vs v3 (blue)](docs/figures/bench_auc_025bpp.svg)
 
-![Detector AUC at 1.0 bpp — high-rate embeds stay visible to global tests](docs/figures/bench_auc_10bpp.svg)
+![Detector AUC at 1.0 bpp, where high-rate embeds stay visible to global tests](docs/figures/bench_auc_10bpp.svg)
 
-Headline: RS analysis (AUC 1.00 on v3) drops to coin-flip on v4
-(0.42–0.54, **zero detections at 5% false positives**); second-order
+Headline: RS analysis (AUC 1.00 on v3) drops to a coin flip on v4
+(0.42 to 0.54, **zero detections at 5% false positives**); second-order
 SPAM features separate STC from greedy (0.90 vs 1.00). PSNR is identical
-across methods at matched rates — the win is *where* (texture) and *how*
-(symmetric, cost-optimal), never "fewer changes". At 1.0 bpp the global
+across methods at matched rates. The win is *where* the changes go
+(texture) and *how* they are placed (symmetric, cost-optimal).
+Never "fewer changes". At 1.0 bpp the global
 chi-square test still sees everything: rate matters more than method.
 
 ## Using it from code
 
-**Python** — one standard entry point per direction (`from stegolib import
+**Python**: one standard entry point per direction (`from stegolib import
 encode_image, decode_image, capacity`):
 
 ```python
@@ -120,12 +126,12 @@ budget = capacity(w, h)                                # v4 budget (envelope='v3
 ```
 
 Encode options: `seed`, `adaptive=True/False`, `robust=True/False`
-(Reed–Solomon framing), `costq=1..16`, `stc=True/False`,
+(Reed-Solomon framing), `costq=1..16`, `stc=True/False`,
 `kdf='argon2id'/'pbkdf2'` (+ `argon2_m_kib`, `argon2_time`); v3 uses
 `seed`/`password`/`do_auth`/`scatter` only. Decode takes just pixels,
-dims, and password — the version rides in the image.
+dims, and password. The version rides in the image.
 
-**C++** — link the static lib, or drop in the single header:
+**C++**: link the static lib, or drop in the single header:
 ```cpp
 #define STEGO_IMPLEMENTATION
 #include "stego_all.h"   // single_include/
@@ -140,8 +146,8 @@ std::vector<uint8_t> back;
 if (!stego::Decode(out, "pw", back)) { /* format/CRC/auth failure */ }
 // v3: stego::Encode with stego::Options (frozen); Decode reads both.
 ```
-(C++ keeps version-pinned encode names — explicit beats modal in a
-statically-linked API — while `Decode` dispatches on the header version.
+(C++ keeps version-pinned encode names, because explicit beats modal in a
+statically linked API, while `Decode` dispatches on the header version.
 The C ABI mirrors this: `stego_encode` / `stego_encode_v4`, one
 `stego_decode`. No signature ever changes: format bumps never imply ABI
 bumps.)
@@ -165,12 +171,12 @@ nothing more. Start from whichever matches your language.
 | Key derivation | Argon2id (PBKDF2 selectable) | PBKDF2 100k |
 | Embedding | Ternary ±1, cost-ordered, STC-optimal | LSB replacement, uniform/scatter |
 | Password | Required | Optional |
-| Robust mode | Reed–Solomon + interleave | None |
+| Robust mode | Reed-Solomon + interleave | None |
 | Readers | v4-aware decoders (this repo) | Everything ever shipped |
 
 Use v4 for anything new. Use v3 only when the other side speaks v3 and
 can't be upgraded (old tooling, frozen deployments). v3 bytes decode
-identically forever — frozen means frozen.
+identically forever. Frozen means frozen.
 
 ## Running what you extract
 
@@ -217,16 +223,16 @@ That is the entire boundary: the library proves the bytes are correct
 
 ## Delivery shapes
 
-In practice the image rarely travels next to the program. Four common
-shapes, honestly scored:
+In practice the image rarely travels next to the program. Here are the
+four shapes we see, honestly scored:
 
-![Delivery shapes A–D: bundled, downloader, scheduled runner, memory handoff](docs/figures/delivery.svg)
+![Delivery shapes A to D: bundled, downloader, scheduled runner, memory handoff](docs/figures/delivery.svg)
 
 Practical notes that apply to all four: serve images over HTTPS from a
 reputable host (URL reputation is scored independently of content);
 boring filenames (banner, texture, sprite); never re-save through a
 JPEG pipeline, chat app, or CDN "optimization" (any recompression kills
-the low bits and the payload with them — use `--robust` if the channel
+the low bits and the payload with them, so use `--robust` if the channel
 might flip scattered bits); validate `MZ`/magic before launch so a
 swapped image fails closed instead of executing junk.
 
@@ -247,25 +253,23 @@ python -m pytest tests/ -q
 Linux: same tree, plain GCC (`cmake -S . -B build -DSTEGO_BUILD_TESTS=ON`);
 GDI+ examples skip themselves outside Windows. MinGW produces a real `.a`.
 
-## Repo map (where everything lives)
+## Repo map: where everything lives
 
-```
-include/stego/   public headers (C++ API, C ABI, format constants)
-src/             the implementation (sha256, codec, aead, argon2, rs, api)
-single_include/  stego_all.h - same code, one file, stb-style
-python/          CLI + importable package + pip metadata
-bindings/rust/   stego-sys (FFI) + stego (safe wrapper)
-examples/        one decode-to-file template per language
-tests/           round-trips, golden vectors, malformed inputs, boundaries,
-                 cross-implementation matrix (C++ <-> Python agree byte-wise)
-docs/            FORMAT (the spec) - API - INTEGRATION - SECURITY - ANALYSIS
-docs/figures/    generated visuals (deterministic scripts, committed output)
-```
+- `include/stego/`: public headers (C++ API, C ABI, format constants)
+- `src/`: the implementation (sha256, codec, aead, argon2, rs, api)
+- `single_include/`: `stego_all.h`, the same code in one file, stb style
+- `python/`: the CLI plus the importable package plus pip metadata
+- `bindings/rust/`: `stego-sys` (FFI) plus `stego` (safe wrapper)
+- `examples/`: one decode-to-file template per language
+- `tests/`: round trips, golden vectors, malformed inputs, boundaries, and
+  the cross-implementation matrix (C++ and Python agree byte for byte)
+- `docs/`: FORMAT (the spec), API, INTEGRATION, SECURITY, ANALYSIS
+- `docs/figures/`: generated visuals (deterministic scripts, committed output)
 
 ## Practical rules that will save you trouble
 
 1. **Capacity first.** Check `capacity(w, h)` (or `stego info`) before
-   embedding — the encoder refuses oversize payloads with a clear error.
+   embedding. The encoder refuses oversize payloads with a clear error.
    Pick a bigger photo, not wishful thinking.
 2. **Passwords: 20+ random characters.** Short passwords in, brute force out
    (Argon2id buys real resistance; PBKDF2 buys time).
@@ -283,7 +287,7 @@ docs/figures/    generated visuals (deterministic scripts, committed output)
 
 `VERSION` file is authoritative (`5.0.0`). `STEGO_FORMAT_V4` (`0x0004`,
 newest written) and `STEGO_FORMAT_V3` (`0x0003`, frozen) name the envelope
-layouts; `STEGO_ABI_VERSION` (currently 1) names the C ABI — a format bump
+layouts; `STEGO_ABI_VERSION` (currently 1) names the C ABI. A format bump
 never implies an ABI bump. v5 removed the split v3/v4 Python entry points
 in favor of one standard API (`encode_image`/`decode_image` +
 `envelope=`); decoders read both versions registry-free.
